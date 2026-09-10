@@ -19,6 +19,8 @@ GPL-Engines laufen unverändert als eigenständige Binaries daneben (Prozessgren
 | **QEMU** (`qemu-system-*`) | GPLv2 | Arbeitstier: Virtualisierung per HVF (macOS), WHPX (Windows), KVM (Linux); TCG-Emulation für i386/x86_64 ohne Beschleuniger und für fremde Architekturen (m68k, ppc, mips, riscv, aarch64); qcow2, Snapshots, SLIRP-Netz, QMP | 0.1 |
 | **86Box** | GPLv2 | Zyklengenaue Retro-PCs: echte Mainboards/Chipsätze, ISA-Sound (SB16, AdLib, OPL3), S3/Voodoo, exakte Taktraten — das Versprechen „Hardware ihrer Zeit" im Wortsinn | 0.3 |
 | **Apple Virtualization.framework** | System | macOS-Gäste auf Apple Silicon (einziger legitimer Weg), Rosetta-Integration für x86-Linux-Binaries | 0.4 |
+| **libretro / RetroArch** | GPLv3 | Spielkonsolen und Handhelds über libretro-Cores (NES, SNES, Mega Drive, Game Boy/GBA, N64, PS1, PSP, DS, Dreamcast, Arcade …) — ein Prozess, eine CLI, ein Steuerprotokoll | 0.2 |
+| Standalone-Konsolen-Emulatoren (GameCube/Wii, PS2) | GPL | Adapter über deren CLI, sobald libretro-Cores dafür nicht reichen | später |
 | Weitere Adapter (FS-UAE/vAmiga für Amiga, RPCEmu für RISC OS) | GPL | Über dieselbe Engine-Schnittstelle, Community-Profile | später |
 
 **Engine-Beschaffung:** 0.1 nutzt eine installierte QEMU (Homebrew / winget / Distro-Paket) und
@@ -90,9 +92,52 @@ umschaltbar und trägt das Badge mit dem Hinweis „im Vorabzugang freigeschalte
 Cray OS / UNICOS (Batmans Beispiel) hat keinen lauffähigen Emulator; bleibt unter
 „Exoten per eigenem Maschinenprofil" und bedeutet: Wer eine Engine hat, kann sie anbinden.
 
+## Spielkonsolen — dritte Gästeklasse
+
+Konsolen und Handhelds sind Maschinen wie alle anderen: Profil, Medien (ROM/Disc-Abbild),
+Snapshots (= Save States), Isolation (kein Netz), Ordner (Speicherstände). Engine ist
+**RetroArch mit libretro-Cores** als separater Prozess — eine Kommandozeile für alle Systeme:
+
+- Start: `retroarch -L <core> <rom> --appendconfig <machine.cfg>`; Konfiguration je Maschine
+  (Vollbild, Shader, `savefile_directory`, `savestate_directory`, `system_directory` für BIOS,
+  `network_cmd_enable = true`, `network_cmd_port`).
+- Steuerung über das Netzwerk-Kommando-Interface (UDP, localhost): `PAUSE_TOGGLE`, `RESET`,
+  `SAVE_STATE`, `LOAD_STATE`, `STATE_SLOT_PLUS/MINUS`, `SCREENSHOT`, `FULLSCREEN_TOGGLE`,
+  `FAST_FORWARD`, `MENU_TOGGLE`, `QUIT` — damit werden Save States zu virtual-Snapshots mit
+  Name und Notiz (Slot-Verwaltung liegt bei virtual, Datei = `<rom>.state<slot>`).
+- Cores kommen vom libretro-Buildbot (`buildbot.libretro.com/nightly/<os>/<arch>/latest/<core>.zip`),
+  virtual lädt sie auf Nutzerklick in den Core-Ordner; RetroArch selbst 0.2 als
+  Systeminstallation (Homebrew / winget / Distro), ab 0.3 im Bundle.
+- BIOS-Dateien liefert der Nutzer in den System-Ordner; das Profil nennt die erwarteten
+  Dateinamen und prüft sie vor dem Start (Hinweis statt Absturz).
+
+| System | Core | BIOS nötig |
+| --- | --- | --- |
+| NES / Famicom | mesen (Fallback nestopia) | nein |
+| SNES | snes9x | nein |
+| Game Boy / Color | gambatte | nein |
+| Game Boy Advance | mgba | optional `gba_bios.bin` |
+| Master System / Game Gear / Mega Drive | genesis_plus_gx | nein (Mega-CD: `bios_CD_E/U/J.bin`) |
+| PC Engine / TurboGrafx | mednafen_pce_fast | CD: `syscard3.pce` |
+| Nintendo 64 | mupen64plus_next | nein |
+| PlayStation | swanstation (Fallback pcsx_rearmed) | `scph5500/5501/5502.bin` |
+| PSP | ppsspp | nein |
+| Nintendo DS | melonds | `bios7.bin`, `bios9.bin`, `firmware.bin` |
+| Saturn | mednafen_saturn | `sega_101.bin`, `mpr-17933.bin` |
+| Dreamcast | flycast | `dc/dc_boot.bin`, `dc/dc_flash.bin` |
+| Neo Geo / Arcade | fbneo | `neogeo.zip` bzw. je Spiel |
+| Atari 2600 | stella | nein |
+| Atari Lynx / WonderSwan / NGPC | handy / mednafen_wswan / mednafen_ngp | Lynx: `lynxboot.img` |
+| MSX | bluemsx | Machines-Datenbank |
+| DOS-Spiele (alternativ zu QEMU) | dosbox_pure | nein |
+
+GameCube/Wii und PlayStation 2 haben zwar libretro-Cores (dolphin, pcsx2), die aber schlechter
+gepflegt sind als die Standalone-Emulatoren — Adapter über deren CLI kommen später. Spiele,
+ROMs und BIOS-Dateien bringt der Nutzer mit; virtual lädt keine und verlinkt keine Quellen.
+
 ## Datenmodell
 
-Machine{id,name,profileId,engine('qemu'|'box86'|'avf'),arch,machineType,cpu{model,cores,clockPercent},
+Machine{id,name,profileId,engine('qemu'|'libretro'|'box86'|'avf'),arch,machineType,cpu{model,cores,clockPercent},
 memoryMb,firmware('bios'|'uefi'|'uefi-secure'),tpm,disks[DiskRef],media[MediaRef],
 network{mode('off'|'isolated'|'nat'|'bridged'),forwards[{host,guest,proto}],proxy},display{type,gl,hidpi},
 audio,usb[],sharedFolders[{hostPath,name,readOnly}],isolation{throwaway,readOnlyShares},
@@ -132,7 +177,8 @@ Bundle; eigene Profile im Konfigurationsordner überlagern sie per `id`.
 - `profiles/`: JSON-Profile, z. B. `pc-1992-486.json`, `pc-1996-pentium133.json`,
   `pc-1999-pentium3.json`, `mac-1994-quadra.json`, `mac-1999-g3.json`, `modern-x86-uefi.json`,
   `modern-arm-uefi.json`, `linux-riscv.json`.
-- `engines/`: Fetch-/Bundle-Skripte für QEMU, swtpm, virtiofsd je Plattform + Lizenztexte.
+- `engines/`: Fetch-/Bundle-Skripte für QEMU, swtpm, virtiofsd und RetroArch je Plattform + Lizenztexte.
+- `src-tauri/engine/libretro`: RetroArch-Prozess, UDP-Kommandos, Core-Download, BIOS-Prüfung.
 
 **Anzeige:** 0.1 öffnet QEMU mit eigenem Fenster (`-display cocoa|gtk|sdl`) — schnell, robust,
 Grafik hardwarebeschleunigt. 0.2 bettet die Anzeige in die App ein: SPICE-Client in Rust
@@ -154,7 +200,8 @@ nur auf Nutzerklick je Gerät.
   ACPI-Aus), QEMU-Fenster, Log-Ansicht, Handbuch, Updater.
 - 0.2: Eingebettete Anzeige (SPICE), Zwischenablage/Drag-and-drop, gemeinsame Ordner (virtiofs +
   SMB für alte Gäste), QEMU im Bundle, `qemu-img`-Konvertierung, OVF/OVA-Import, USB,
-  Mac-68k/PPC- und ARM/RISC-V-Profile, verschlüsselte Maschinen.
+  Mac-68k/PPC- und ARM/RISC-V-Profile, verschlüsselte Maschinen; Konsolen über RetroArch
+  (Profile, Core-Download, Save States als Snapshots, BIOS-Prüfung).
 - 0.3: nested-Umfang: Hardware-Bibliothek mit Einzelgeräten, Snapshot-Bäume, Klone, CLI mit JSON,
   Headless, Port-Weiterleitungen, serielle Konsole, Nested-Virt; 86Box-Engine mit eigenen
   Profilen; Profil-Export/-Import; Lizenzprüfung „nested".
