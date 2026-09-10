@@ -1,0 +1,66 @@
+{
+  "id": "console-dos",
+  "name": "DOS-Spiele (schnell)",
+  "epoch": 1990,
+  "category": "console",
+  "os": {
+    "family": "DOS",
+    "versions": [
+      "MS-DOS-Spiele ohne Installation"
+    ],
+    "hint": "Ordner oder ZIP mit dem Spiel einlegen — ohne Betriebssystem-Installation. Für echte DOS-Systeme das Profil „PC 1992“ nehmen."
+  },
+  "engine": "libretro",
+  "arch": "none",
+  "machineType": "",
+  "cpu": {
+    "model": "",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 0,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "",
+    "audio": [],
+    "nic": "",
+    "storageBus": "",
+    "floppy": false,
+    "input": "gamepad"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": true,
+    "hidpi": true,
+    "fullscreen": true
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "",
+  "defaultDiskGb": 0,
+  "needsRom": false,
+  "libretro": {
+    "core": "dosbox_pure",
+    "fallbackCore": null,
+    "bios": [],
+    "extensions": [
+      "zip",
+      "exe",
+      "com",
+      "bat",
+      "iso",
+      "cue",
+      "dosz"
+    ]
+  }
+}

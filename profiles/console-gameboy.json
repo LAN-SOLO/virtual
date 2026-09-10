@@ -1,0 +1,63 @@
+{
+  "id": "console-gameboy",
+  "name": "Game Boy / Color",
+  "epoch": 1989,
+  "category": "console",
+  "os": {
+    "family": "Game Boy",
+    "versions": [
+      "Game Boy",
+      "Game Boy Color"
+    ],
+    "hint": "ROM als .gb oder .gbc einlegen."
+  },
+  "engine": "libretro",
+  "arch": "none",
+  "machineType": "",
+  "cpu": {
+    "model": "",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 0,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "",
+    "audio": [],
+    "nic": "",
+    "storageBus": "",
+    "floppy": false,
+    "input": "gamepad"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": true,
+    "hidpi": true,
+    "fullscreen": true
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "",
+  "defaultDiskGb": 0,
+  "needsRom": false,
+  "libretro": {
+    "core": "gambatte",
+    "fallbackCore": null,
+    "bios": [],
+    "extensions": [
+      "gb",
+      "gbc",
+      "dmg"
+    ]
+  }
+}

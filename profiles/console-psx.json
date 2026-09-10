@@ -1,0 +1,69 @@
+{
+  "id": "console-psx",
+  "name": "PlayStation",
+  "epoch": 1994,
+  "category": "console",
+  "os": {
+    "family": "Sony PlayStation",
+    "versions": [
+      "PlayStation"
+    ],
+    "hint": "BIOS scph5500.bin (JP), scph5501.bin (US) und scph5502.bin (EU) in den System-Ordner legen. Discs als .cue/.bin oder .chd."
+  },
+  "engine": "libretro",
+  "arch": "none",
+  "machineType": "",
+  "cpu": {
+    "model": "",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 0,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "",
+    "audio": [],
+    "nic": "",
+    "storageBus": "",
+    "floppy": false,
+    "input": "gamepad"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": true,
+    "hidpi": true,
+    "fullscreen": true
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "",
+  "defaultDiskGb": 0,
+  "needsRom": false,
+  "libretro": {
+    "core": "swanstation",
+    "fallbackCore": "pcsx_rearmed",
+    "bios": [
+      "scph5500.bin",
+      "scph5501.bin",
+      "scph5502.bin"
+    ],
+    "extensions": [
+      "cue",
+      "chd",
+      "pbp",
+      "m3u",
+      "iso",
+      "bin"
+    ]
+  }
+}

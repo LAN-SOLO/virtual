@@ -1,0 +1,62 @@
+{
+  "id": "modern-x86-uefi",
+  "name": "PC — aktuell (UEFI)",
+  "epoch": 0,
+  "category": "modern",
+  "os": {
+    "family": "Aktuelle x86-Systeme",
+    "versions": [
+      "Windows 10",
+      "Windows 11",
+      "Windows Server",
+      "Linux",
+      "FreeBSD",
+      "OpenBSD",
+      "NetBSD",
+      "Haiku"
+    ],
+    "hint": "Installationsmedium als ISO einlegen. Windows 11 verlangt TPM 2.0 und UEFI — beides ist gesetzt."
+  },
+  "engine": "qemu",
+  "arch": "x86_64",
+  "machineType": "q35",
+  "cpu": {
+    "model": "host",
+    "cores": 4,
+    "clockPercent": 100
+  },
+  "memoryMb": 4096,
+  "firmware": "uefi",
+  "tpm": true,
+  "devices": {
+    "graphics": "virtio-vga",
+    "audio": [
+      "intel-hda"
+    ],
+    "nic": "virtio-net-pci",
+    "storageBus": "virtio",
+    "floppy": false,
+    "input": "usb"
+  },
+  "network": {
+    "mode": "nat",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": false
+  },
+  "display": {
+    "kind": "window",
+    "gl": false,
+    "hidpi": true,
+    "fullscreen": false
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "Virtualisiert über den Beschleuniger des Hosts (HVF/WHPX/KVM); auf ARM-Hosts läuft dieses Profil emuliert und entsprechend langsam.",
+  "defaultDiskGb": 64,
+  "needsRom": false,
+  "libretro": null
+}

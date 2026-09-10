@@ -1,0 +1,66 @@
+{
+  "id": "console-saturn",
+  "name": "Sega Saturn",
+  "epoch": 1994,
+  "category": "console",
+  "os": {
+    "family": "Sega Saturn",
+    "versions": [
+      "Saturn"
+    ],
+    "hint": "sega_101.bin und mpr-17933.bin in den System-Ordner legen. Rechenintensiv — aktueller Host empfohlen."
+  },
+  "engine": "libretro",
+  "arch": "none",
+  "machineType": "",
+  "cpu": {
+    "model": "",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 0,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "",
+    "audio": [],
+    "nic": "",
+    "storageBus": "",
+    "floppy": false,
+    "input": "gamepad"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": true,
+    "hidpi": true,
+    "fullscreen": true
+  },
+  "tier": "free",
+  "beta": true,
+  "notes": "",
+  "defaultDiskGb": 0,
+  "needsRom": false,
+  "libretro": {
+    "core": "mednafen_saturn",
+    "fallbackCore": null,
+    "bios": [
+      "sega_101.bin",
+      "mpr-17933.bin"
+    ],
+    "extensions": [
+      "cue",
+      "ccd",
+      "chd",
+      "m3u"
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "id": "console-arcade",
+  "name": "Arcade / Neo Geo",
+  "epoch": 1990,
+  "category": "console",
+  "os": {
+    "family": "Arcade",
+    "versions": [
+      "Neo Geo",
+      "CPS-1 / CPS-2",
+      "diverse Arcade-Boards"
+    ],
+    "hint": "ROM-Sets als ZIP, Neo Geo braucht zusätzlich neogeo.zip im selben Ordner."
+  },
+  "engine": "libretro",
+  "arch": "none",
+  "machineType": "",
+  "cpu": {
+    "model": "",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 0,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "",
+    "audio": [],
+    "nic": "",
+    "storageBus": "",
+    "floppy": false,
+    "input": "gamepad"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": true,
+    "hidpi": true,
+    "fullscreen": true
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "",
+  "defaultDiskGb": 0,
+  "needsRom": false,
+  "libretro": {
+    "core": "fbneo",
+    "fallbackCore": "mame2003_plus",
+    "bios": [
+      "neogeo.zip"
+    ],
+    "extensions": [
+      "zip",
+      "7z"
+    ]
+  }
+}

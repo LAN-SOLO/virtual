@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "virtual",
+  "version": "0.1.0",
+  "identifier": "com.lan-solo.virtual",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1436",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "virtual",
+        "width": 1240,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "backgroundColor": "#0b1220"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ3NjJBOEM1RjE0NTAwMjYKUldRbUFFWHh4YWhpUjRRTFROb05CdElKZHBwVkxjRjNxTGNIVWt6V01IZ2tmckN0N3ZuK1ZLNzYK",
+      "endpoints": [
+        "https://github.com/LAN-SOLO/virtual/releases/latest/download/latest.json"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": [
+      "app",
+      "dmg",
+      "msi",
+      "nsis",
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Virtuelle Maschinen für heute und damals — lokal, ohne Konto",
+    "longDescription": "virtual führt aktuelle Windows-, Linux- und BSD-Gäste per Hardware-Virtualisierung aus und emuliert alte Systeme von DOS über Windows 95 bis Mac OS 9 auf der Hardware ihrer Zeit — dazu Spielkonsolen über libretro-Cores. Maschinenprofile statt Einstellungslisten, Snapshots, gemeinsame Ordner, isolierte Alt-Systeme. Engines (QEMU, RetroArch) laufen als separate Prozesse. Daten bleiben lokal, keine Telemetrie.",
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "id": "console-gba",
+  "name": "Game Boy Advance",
+  "epoch": 2001,
+  "category": "console",
+  "os": {
+    "family": "Game Boy Advance",
+    "versions": [
+      "Game Boy Advance"
+    ],
+    "hint": "gba_bios.bin ist optional — ohne läuft der Core mit eigenem BIOS-Ersatz."
+  },
+  "engine": "libretro",
+  "arch": "none",
+  "machineType": "",
+  "cpu": {
+    "model": "",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 0,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "",
+    "audio": [],
+    "nic": "",
+    "storageBus": "",
+    "floppy": false,
+    "input": "gamepad"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": true,
+    "hidpi": true,
+    "fullscreen": true
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "",
+  "defaultDiskGb": 0,
+  "needsRom": false,
+  "libretro": {
+    "core": "mgba",
+    "fallbackCore": null,
+    "bios": [],
+    "extensions": [
+      "gba",
+      "agb"
+    ]
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "id": "mac-1999-g3",
+  "name": "Mac 1999 — Power Mac G3",
+  "epoch": 1999,
+  "category": "retro-mac",
+  "os": {
+    "family": "Classic Mac OS (PowerPC)",
+    "versions": [
+      "Mac OS 8.5 – 9.2.2",
+      "Linux (ppc)",
+      "NetBSD (macppc)"
+    ],
+    "hint": "Startet mit OpenBIOS ohne ROM. Installations-CD als ISO einlegen; nach der Installation ggf. „Boot from disk“ im OpenBIOS wählen."
+  },
+  "engine": "qemu",
+  "arch": "ppc",
+  "machineType": "mac99",
+  "cpu": {
+    "model": "g4",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 512,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "VGA",
+    "audio": [
+      "screamer"
+    ],
+    "nic": "sungem",
+    "storageBus": "ide",
+    "floppy": false,
+    "input": "usb"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": false,
+    "hidpi": true,
+    "fullscreen": false
+  },
+  "tier": "free",
+  "beta": true,
+  "notes": "QEMU mac99 (via=pmu), Screamer-Audio, Sungem-Ethernet; Grafik ohne Beschleunigung.",
+  "defaultDiskGb": 8,
+  "needsRom": false,
+  "libretro": null
+}

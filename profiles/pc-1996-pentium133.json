@@ -1,0 +1,63 @@
+{
+  "id": "pc-1996-pentium133",
+  "name": "PC 1996 — Pentium 133",
+  "epoch": 1996,
+  "category": "retro-pc",
+  "os": {
+    "family": "Windows 9x & Zeitgenossen",
+    "versions": [
+      "Windows 95",
+      "Windows 98",
+      "Windows NT 4",
+      "OS/2 Warp 3/4",
+      "BeOS 5",
+      "QNX 6",
+      "NeXTSTEP 3.3 / OpenStep 4",
+      "Solaris 2.x x86"
+    ],
+    "hint": "Windows 95/98 von Boot-Diskette und CD installieren; Takt bleibt gebremst, damit der Timer-Fehler alter Kernel nicht zuschlägt."
+  },
+  "engine": "qemu",
+  "arch": "i386",
+  "machineType": "pc",
+  "cpu": {
+    "model": "pentium",
+    "cores": 1,
+    "clockPercent": 75
+  },
+  "memoryMb": 64,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "cirrus-vga",
+    "audio": [
+      "sb16",
+      "adlib"
+    ],
+    "nic": "ne2k_pci",
+    "storageBus": "ide",
+    "floppy": true,
+    "input": "ps2"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": false,
+    "hidpi": true,
+    "fullscreen": false
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "i440FX + PIIX3, Cirrus-VGA mit VESA, Sound Blaster 16 + AdLib, NE2000-PCI (nur wenn Netz eingeschaltet wird).",
+  "defaultDiskGb": 4,
+  "needsRom": false,
+  "libretro": null
+}

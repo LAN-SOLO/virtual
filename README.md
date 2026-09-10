@@ -18,4 +18,43 @@ virtual ist ein Orchestrator: Maschinen, Profile, Medien, Snapshots, Isolation, 
 eigener Code; die Ausführung übernehmen bewährte Engines (QEMU, später 86Box und Apples
 Virtualization.framework) als separate Prozesse. Details, Datenmodell und Roadmap: `VIRTUAL_PLAN.md`.
 
-Status: in Planung — Website: https://lan-solo.com/de/tools/virtual/
+- **Konsolen:** Spielkonsolen und Handhelds (NES bis Dreamcast, Arcade, MSX) als dritte
+  Maschinenklasse über RetroArch/libretro-Cores — Save States werden zu Snapshots.
+
+Status: Version 0.1 in Arbeit (Vorabzugang, keine Downloads) — Website: https://lan-solo.com/de/tools/virtual/
+
+## Voraussetzungen
+
+virtual bringt in 0.1 noch keine Engines mit, sondern nutzt installierte:
+
+| Engine | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| QEMU (Pflicht für PCs/Macs) | `brew install qemu` | `winget install SoftwareFreedomConservancy.QEMU` | `apt install qemu-system` / `dnf install qemu` |
+| RetroArch (für Konsolen) | `brew install --cask retroarch` | `winget install Libretro.RetroArch` | `apt install retroarch` / Flatpak |
+| swtpm (optional, TPM 2.0) | `brew install swtpm` | — | `apt install swtpm` |
+
+Cores lädt man in RetroArch unter „Online-Updater → Core herunterladen“; BIOS-Dateien gehören
+in den System-Ordner (Einstellungen → Engines zeigt die Pfade).
+
+## Entwicklung
+
+```sh
+pnpm install
+pnpm tauri dev
+cargo test --workspace
+```
+
+Der Rust-Kern (`core/`, Crate `virtual-core`) ist Tauri-frei und testbar: Datenmodell,
+Maschinenprofile (`profiles/*.json`, eingebettet), QEMU-Kommandozeile als reine Funktion,
+QMP-Nachrichten, RetroArch-Kommandozeile und -Konfiguration, Engine-Erkennung. Die Kommandos
+in `src-tauri/src/commands.rs` folgen dem Vertrag in `src/api.ts`.
+
+## Release-Build (lokal)
+
+```sh
+TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/virtual-updater.key)" \
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+pnpm tauri build --bundles app,dmg
+```
+
+Details und Roadmap: `VIRTUAL_PLAN.md`.

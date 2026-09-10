@@ -1,0 +1,67 @@
+{
+  "id": "console-dreamcast",
+  "name": "Sega Dreamcast",
+  "epoch": 1998,
+  "category": "console",
+  "os": {
+    "family": "Sega Dreamcast",
+    "versions": [
+      "Dreamcast",
+      "NAOMI (eingeschränkt)"
+    ],
+    "hint": "dc/dc_boot.bin und dc/dc_flash.bin in den System-Ordner legen. OpenGL nötig."
+  },
+  "engine": "libretro",
+  "arch": "none",
+  "machineType": "",
+  "cpu": {
+    "model": "",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 0,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "",
+    "audio": [],
+    "nic": "",
+    "storageBus": "",
+    "floppy": false,
+    "input": "gamepad"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": true,
+    "hidpi": true,
+    "fullscreen": true
+  },
+  "tier": "free",
+  "beta": true,
+  "notes": "",
+  "defaultDiskGb": 0,
+  "needsRom": false,
+  "libretro": {
+    "core": "flycast",
+    "fallbackCore": null,
+    "bios": [
+      "dc/dc_boot.bin",
+      "dc/dc_flash.bin"
+    ],
+    "extensions": [
+      "gdi",
+      "cdi",
+      "chd",
+      "cue"
+    ]
+  }
+}

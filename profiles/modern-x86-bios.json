@@ -1,0 +1,59 @@
+{
+  "id": "modern-x86-bios",
+  "name": "PC — aktuell (BIOS)",
+  "epoch": 0,
+  "category": "modern",
+  "os": {
+    "family": "x86-Systeme mit Legacy-BIOS",
+    "versions": [
+      "Windows 7",
+      "Windows 8.1",
+      "ReactOS",
+      "ältere Linux-Distributionen",
+      "FreeDOS (schnell)"
+    ],
+    "hint": "Für Systeme ohne UEFI-Installer. ReactOS läuft am besten mit IDE-Platte und e1000-Netzkarte."
+  },
+  "engine": "qemu",
+  "arch": "x86_64",
+  "machineType": "pc",
+  "cpu": {
+    "model": "host",
+    "cores": 2,
+    "clockPercent": 100
+  },
+  "memoryMb": 2048,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "VGA",
+    "audio": [
+      "ac97"
+    ],
+    "nic": "e1000",
+    "storageBus": "ide",
+    "floppy": false,
+    "input": "ps2"
+  },
+  "network": {
+    "mode": "nat",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": false
+  },
+  "display": {
+    "kind": "window",
+    "gl": false,
+    "hidpi": true,
+    "fullscreen": false
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "Virtualisiert, klassische Chipsatz-Emulation i440FX.",
+  "defaultDiskGb": 32,
+  "needsRom": false,
+  "libretro": null
+}

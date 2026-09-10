@@ -1,0 +1,54 @@
+{
+  "id": "linux-riscv",
+  "name": "RISC-V — Linux/BSD",
+  "epoch": 0,
+  "category": "other-arch",
+  "os": {
+    "family": "RISC-V 64",
+    "versions": [
+      "Linux (riscv64)",
+      "FreeBSD (riscv64)"
+    ],
+    "hint": "Kernel und Rootfs-Abbild als Platte; Firmware OpenSBI kommt aus dem QEMU-Paket."
+  },
+  "engine": "qemu",
+  "arch": "riscv64",
+  "machineType": "virt",
+  "cpu": {
+    "model": "rv64",
+    "cores": 2,
+    "clockPercent": 100
+  },
+  "memoryMb": 2048,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "virtio-gpu-pci",
+    "audio": [],
+    "nic": "virtio-net-device",
+    "storageBus": "virtio",
+    "floppy": false,
+    "input": "virtio"
+  },
+  "network": {
+    "mode": "nat",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": false,
+    "hidpi": true,
+    "fullscreen": false
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "Emuliert (TCG) auf jedem Host.",
+  "defaultDiskGb": 16,
+  "needsRom": false,
+  "libretro": null
+}

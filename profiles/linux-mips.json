@@ -1,0 +1,55 @@
+{
+  "id": "linux-mips",
+  "name": "MIPS — Malta",
+  "epoch": 0,
+  "category": "other-arch",
+  "os": {
+    "family": "MIPS 32",
+    "versions": [
+      "Linux (mips)",
+      "NetBSD (evbmips)",
+      "Plan 9 (mips, experimentell)"
+    ],
+    "hint": "Malta-Referenzboard; Kernel wird direkt geladen (-kernel) oder von der emulierten IDE-Platte gestartet."
+  },
+  "engine": "qemu",
+  "arch": "mips",
+  "machineType": "malta",
+  "cpu": {
+    "model": "24Kf",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 512,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "cirrus-vga",
+    "audio": [],
+    "nic": "pcnet",
+    "storageBus": "ide",
+    "floppy": false,
+    "input": "ps2"
+  },
+  "network": {
+    "mode": "nat",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": false,
+    "hidpi": true,
+    "fullscreen": false
+  },
+  "tier": "free",
+  "beta": true,
+  "notes": "Emuliert (TCG).",
+  "defaultDiskGb": 8,
+  "needsRom": false,
+  "libretro": null
+}

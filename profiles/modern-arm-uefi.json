@@ -1,0 +1,57 @@
+{
+  "id": "modern-arm-uefi",
+  "name": "ARM — aktuell (UEFI)",
+  "epoch": 0,
+  "category": "modern",
+  "os": {
+    "family": "ARM64-Systeme",
+    "versions": [
+      "Windows 11 ARM",
+      "Linux (aarch64)",
+      "FreeBSD (aarch64)"
+    ],
+    "hint": "ISO für aarch64 einlegen. Auf Apple Silicon virtualisiert (HVF), auf Intel/AMD emuliert."
+  },
+  "engine": "qemu",
+  "arch": "aarch64",
+  "machineType": "virt",
+  "cpu": {
+    "model": "host",
+    "cores": 4,
+    "clockPercent": 100
+  },
+  "memoryMb": 4096,
+  "firmware": "uefi",
+  "tpm": true,
+  "devices": {
+    "graphics": "virtio-gpu-pci",
+    "audio": [
+      "intel-hda"
+    ],
+    "nic": "virtio-net-pci",
+    "storageBus": "virtio",
+    "floppy": false,
+    "input": "virtio"
+  },
+  "network": {
+    "mode": "nat",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": false
+  },
+  "display": {
+    "kind": "window",
+    "gl": false,
+    "hidpi": true,
+    "fullscreen": false
+  },
+  "tier": "free",
+  "beta": false,
+  "notes": "Firmware AAVMF (edk2-aarch64) wird aus dem QEMU-Paket verwendet.",
+  "defaultDiskGb": 64,
+  "needsRom": false,
+  "libretro": null
+}

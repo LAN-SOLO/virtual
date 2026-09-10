@@ -1,0 +1,55 @@
+{
+  "id": "mac-1994-quadra",
+  "name": "Mac 1994 — Quadra 800",
+  "epoch": 1994,
+  "category": "retro-mac",
+  "os": {
+    "family": "Classic Mac OS (68k)",
+    "versions": [
+      "System 7.1 – 7.6",
+      "Mac OS 8.0 / 8.1",
+      "A/UX 3.x"
+    ],
+    "hint": "Braucht das Quadra-800-ROM (1 MB, Dateiname beliebig) als ROM-Medium und eine Installations-CD oder Disketten als IMG."
+  },
+  "engine": "qemu",
+  "arch": "m68k",
+  "machineType": "q800",
+  "cpu": {
+    "model": "m68040",
+    "cores": 1,
+    "clockPercent": 100
+  },
+  "memoryMb": 128,
+  "firmware": "bios",
+  "tpm": false,
+  "devices": {
+    "graphics": "nubus-macfb",
+    "audio": [],
+    "nic": "dp83932",
+    "storageBus": "scsi",
+    "floppy": true,
+    "input": "adb"
+  },
+  "network": {
+    "mode": "off",
+    "forwards": [],
+    "proxy": false
+  },
+  "isolation": {
+    "throwaway": false,
+    "readOnlyShares": true
+  },
+  "display": {
+    "kind": "window",
+    "gl": false,
+    "hidpi": true,
+    "fullscreen": false
+  },
+  "tier": "free",
+  "beta": true,
+  "notes": "QEMU q800: 68040, NuBus-Framebuffer, SCSI-Platte, ADB-Eingabe. ROM liefert der Nutzer.",
+  "defaultDiskGb": 2,
+  "needsRom": true,
+  "libretro": null
+}
