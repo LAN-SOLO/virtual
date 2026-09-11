@@ -23,6 +23,8 @@ import {
   baseName,
   categoryLabel,
   extensionsForProfile,
+  CD_EXTENSIONS,
+  mayNeedConversion,
   fmtDateTime,
   fmtMem,
   stateLabel,
@@ -123,13 +125,21 @@ export function MachineDetail({
       kind === 'floppy'
         ? [{ name: 'IMG', extensions: ['img', 'ima', 'dsk', 'vfd'] }]
         : kind === 'cdrom'
-          ? [{ name: 'ISO', extensions: ['iso', 'bin', 'cue', 'img', 'dmg', 'toast'] }]
+          ? [{ name: 'ISO', extensions: CD_EXTENSIONS }]
           : ext
             ? [{ name: 'ROM', extensions: ext }]
             : undefined;
     const sel = await open({ multiple: false, directory: false, filters });
     if (typeof sel !== 'string') return;
-    api.attachMedia(machine.id, kind, sel, slot).then(onMachine).catch(onFail);
+    const converts = kind === 'cdrom' && mayNeedConversion(sel);
+    if (converts) onToast(t.converting);
+    api
+      .attachMedia(machine.id, kind, sel, slot)
+      .then((m) => {
+        onMachine(m);
+        if (converts) onToast(t.converted);
+      })
+      .catch(onFail);
   };
 
   const createSnapshot = () => {
@@ -452,6 +462,15 @@ export function MachineDetail({
                       ))}
                     </select>
                   </label>
+                  <label className="field grow1">
+                    <span>{t.hwBoot}</span>
+                    <select value={draft.boot || 'auto'} disabled={running} onChange={(e) => edit({ boot: e.target.value as Machine['boot'] })}>
+                      <option value="auto">{t.bootAuto}</option>
+                      <option value="disk">{t.bootDisk}</option>
+                      <option value="cdrom">{t.bootCdrom}</option>
+                      <option value="floppy">{t.bootFloppy}</option>
+                    </select>
+                  </label>
                   <label className="check grow1" style={{ alignSelf: 'end' }}>
                     <input
                       type="checkbox"
@@ -462,6 +481,7 @@ export function MachineDetail({
                     {t.hwFloppy}
                   </label>
                 </div>
+                <div className="note">{t.bootHint}</div>
               </>
             )}
             <div className="row3">

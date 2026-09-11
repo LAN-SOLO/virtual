@@ -251,6 +251,9 @@ pub struct Machine {
     pub shared_folders: Vec<SharedFolder>,
     pub isolation: Isolation,
     pub libretro: Option<LibretroConfig>,
+    /// Bootgerät: `auto` (CD zuerst, wenn eingelegt; sonst Platte) | `disk` | `cdrom` | `floppy`.
+    /// Nach einer Installation von CD auf `disk` stellen oder die CD auswerfen.
+    pub boot: String,
     /// Freie QEMU-Zusatzargumente (nested; Vorabzugang frei).
     pub extra_args: Vec<String>,
     pub notes: String,

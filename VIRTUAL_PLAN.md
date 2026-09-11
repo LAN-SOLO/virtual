@@ -230,5 +230,21 @@ Getestet mit QEMU 11.1.1 (Homebrew) und RetroArch 1.22.2 auf Apple Silicon; Prof
 - RetroArch: der Homebrew-Cask `retroarch` ist nur x86_64 und hängt unter Rosetta nach QUIT im
   Beenden (Daten sind gesichert, die App killt nach 5 s). Der Cask `retroarch-metal` ist universal,
   beendet sauber → Installationshinweis geändert. Cores müssen zur Binary-Architektur passen.
-- Hilfsprogramm: `cargo run -p virtual-core --example smoke` legt Maschinen aus Profilen an und
-  druckt die erzeugte Kommandozeile — Grundlage für die Skripte des Smoke-Tests.
+- Hilfsprogramm: `cargo run -p virtual-core --example smoke` legt Maschinen aus Profilen an,
+  druckt die erzeugte Kommandozeile und wandelt Abbilder (`convert`) — Grundlage der Smoke-Skripte.
+
+## Installieren von CD-Abbild (2026-09-11)
+
+- `core/src/image.rs`: NRG (Nero v1/v2, DAO und TAO), BIN/CUE, MDF/MDS, CCD/IMG und rohe
+  2352/2336-Byte-Abbilder werden beim Einlegen als `<stem>.iso` in den Maschinenordner gewandelt
+  (erste Datenspur, streamend). ISO 9660 bleibt unangetastet; Unbekanntes (z. B. reine HFS-CD)
+  wird QEMU roh gereicht. `attach_media`/`create_machine` laufen dafür asynchron (spawn_blocking).
+- `Machine.boot`: `auto` (CD zuerst, wenn eingelegt; dann Platte, dann Diskette) | `disk` |
+  `cdrom` | `floppy`. Auf PC-Boards hängen Platten/CDs jetzt als `-device ide-hd/ide-cd` mit
+  bootindex (primärer/sekundärer Kanal), Disketten über `-global isa-fdc.bootindexA/B`.
+  Ausdrückliche Wahl = nur diese Klasse gelistet + `-boot strict=on` → SeaBIOS hält an, statt
+  auf die CD zurückzufallen (`-boot order=c,strict=on` allein reicht nicht: ohne bootindex-
+  Geräte hängt QEMU kein HALT an). Geprüft: TinyCore-NRG → ISO identisch, bootet; `disk` strikt
+  → „No bootable device“; Diskette auto und strikt → FreeDOS.
+- Offen: Medienwechsel im Lauf (0.2), Audio-/Multi-Track-CDs, Fortschrittsanzeige bei großen
+  Abbildern (Wandlung eines 700-MB-Abbilds dauert wenige Sekunden von SSD).

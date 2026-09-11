@@ -96,7 +96,8 @@ const de: Content = {
     {
       title: 'Medien, Ordner, Netzwerk',
       body: [
-        '• „Medien“: CDs (ISO), Disketten (IMG) und Firmware-ROMs einlegen oder entfernen — wirkt beim nächsten Start. Diskette A: und B: für die Installation von 13 Disketten.',
+        '• „Medien“: CDs (ISO, NRG, BIN/CUE, MDF), Disketten (IMG) und Firmware-ROMs einlegen oder entfernen — wirkt beim nächsten Start. Diskette A: und B: für die Installation von 13 Disketten.',
+        '• Installieren von CD: Abbild einlegen, „Start“ — die Maschine bootet vom Medium. Nach der Installation unter „Hardware“ → „Booten von“ auf „Platte“ stellen oder die CD auswerfen, sonst startet wieder das Installationsmedium. Windows 9x: Boot-Diskette einlegen, CD dazu, von A: starten und setup von der CD aufrufen.',
         '• „Netzwerk“: Modus, Port-Weiterleitungen (z. B. Host 2222 → Gast 22 für SSH) und gemeinsame Ordner. Aktuelle Gäste hängen Ordner per virtio-9p ein, alte Gäste über die SMB-Freigabe des NAT-Netzes.',
         '• „Hardware“: Kerne, Speicher, Taktbremse, Firmware, Grafik, Audio, Netzkarte, Platten-Bus, Diskettenlaufwerk, Eingabe und Anzeige — änderbar, solange die Maschine aus ist.',
         '• „Log“ zeigt die Ausgabe der Engine — der erste Blick, wenn ein Start fehlschlägt.',
@@ -109,7 +110,7 @@ const de: Content = {
       title: 'Engines installieren',
       body: [
         'virtual bringt in Version 0.1 keine Engines mit, sondern nutzt installierte. Einstellungen → Engines zeigt, was gefunden wurde, und den Installationsbefehl.',
-        '• macOS: brew install qemu · brew install --cask retroarch · brew install swtpm (für TPM 2.0).',
+        '• macOS: brew install qemu · brew install --cask retroarch-metal · brew install swtpm (für TPM 2.0).',
         '• Windows: winget install SoftwareFreedomConservancy.QEMU · winget install Libretro.RetroArch. swtpm gibt es unter Windows nicht — TPM entfällt dort.',
         '• Linux: sudo apt install qemu-system retroarch swtpm (Debian/Ubuntu) bzw. sudo dnf install qemu retroarch swtpm (Fedora).',
         '• Liegt eine Engine an einem ungewöhnlichen Ort, tragen Sie den Pfad in den Einstellungen ein. „Erneut suchen“ prüft sofort.',
@@ -188,7 +189,8 @@ const de: Content = {
       id: 'media',
       title: 'Medien & Ordner',
       body: [
-        '• CDs: ISO, BIN/CUE, DMG/TOAST. Disketten: IMG, IMA, DSK, VFD. Firmware-ROM: beliebige Datei (Quadra 800: 1 MB ROM).',
+        '• CDs: ISO direkt; NRG (Nero), BIN/CUE, MDF/MDS (Alcohol), CCD/IMG (CloneCD) und rohe 2352-Byte-Abbilder wandelt virtual beim Einlegen in ein ISO im Maschinenordner (nur die erste Datenspur, Audio-CDs nicht). Disketten: IMG, IMA, DSK, VFD (schreibgeschützt). Firmware-ROM: beliebige Datei (Quadra 800: 1 MB ROM).',
+        '• „Booten von“ (Hardware): automatisch = CD zuerst, wenn eingelegt; sonst Platte, CD/DVD oder Diskette fest wählen. Esc im BIOS-Startbild öffnet das Bootmenü.',
         '• Medien wirken beim nächsten Start; Wechsel im laufenden Betrieb folgt in 0.2.',
         '• Gemeinsame Ordner: virtio-9p (mount -t 9p -o trans=virtio <name> /mnt) für aktuelle Gäste; alte Gäste über die SMB-Freigabe im NAT-Netz (\\\\10.0.2.4\\qemu).',
         '• „Ordner öffnen“ in der Übersicht zeigt den Maschinenordner: machine.json, disk-0.qcow2, nvram.fd, snapshots.json, log.txt.',
@@ -286,7 +288,8 @@ const en: Content = {
     {
       title: 'Media, folders, network',
       body: [
-        '• “Media”: insert or remove CDs (ISO), floppies (IMG) and firmware ROMs — takes effect on the next start. Floppy A: and B: for those 13-disk installs.',
+        '• “Media”: insert or remove CDs (ISO, NRG, BIN/CUE, MDF), floppies (IMG) and firmware ROMs — takes effect on the next start. Floppy A: and B: for those 13-disk installs.',
+        '• Installing from CD: insert the image, “Start” — the machine boots from the medium. After the install set “Hardware” → “Boot from” to “Disk” or eject the CD, otherwise the install medium boots again. Windows 9x: insert the boot floppy plus the CD, boot from A: and run setup from the CD.',
         '• “Network”: mode, port forwards (e.g. host 2222 → guest 22 for SSH) and shared folders. Current guests mount folders via virtio-9p, old guests via the SMB share of the NAT network.',
         '• “Hardware”: cores, memory, clock throttle, firmware, graphics, audio, NIC, disk bus, floppy drive, input and display — editable while the machine is off.',
         '• “Log” shows the engine output — the first place to look when a start fails.',
@@ -299,7 +302,7 @@ const en: Content = {
       title: 'Installing engines',
       body: [
         'Version 0.1 ships no engines and uses installed ones. Settings → Engines shows what was found and the install command.',
-        '• macOS: brew install qemu · brew install --cask retroarch · brew install swtpm (for TPM 2.0).',
+        '• macOS: brew install qemu · brew install --cask retroarch-metal · brew install swtpm (for TPM 2.0).',
         '• Windows: winget install SoftwareFreedomConservancy.QEMU · winget install Libretro.RetroArch. swtpm is not available on Windows — no TPM there.',
         '• Linux: sudo apt install qemu-system retroarch swtpm (Debian/Ubuntu) or sudo dnf install qemu retroarch swtpm (Fedora).',
         '• If an engine lives somewhere unusual, enter its path in Settings. “Search again” checks immediately.',
@@ -378,7 +381,8 @@ const en: Content = {
       id: 'media',
       title: 'Media & folders',
       body: [
-        '• CDs: ISO, BIN/CUE, DMG/TOAST. Floppies: IMG, IMA, DSK, VFD. Firmware ROM: any file (Quadra 800: 1 MB ROM).',
+        '• CDs: ISO directly; NRG (Nero), BIN/CUE, MDF/MDS (Alcohol), CCD/IMG (CloneCD) and raw 2352-byte images are converted to an ISO in the machine folder on insert (first data track only, no audio CDs). Floppies: IMG, IMA, DSK, VFD (read-only). Firmware ROM: any file (Quadra 800: 1 MB ROM).',
+        '• “Boot from” (Hardware): automatic = CD first when inserted; or fix it to disk, CD/DVD or floppy. Esc at the BIOS splash opens the boot menu.',
         '• Media take effect on the next start; hot-swap arrives in 0.2.',
         '• Shared folders: virtio-9p (mount -t 9p -o trans=virtio <name> /mnt) for current guests; old guests via the SMB share on the NAT network (\\\\10.0.2.4\\qemu).',
         '• “Open folder” in Overview shows the machine folder: machine.json, disk-0.qcow2, nvram.fd, snapshots.json, log.txt.',

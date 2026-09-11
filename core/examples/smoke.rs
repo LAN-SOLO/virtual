@@ -1,5 +1,7 @@
 //! Smoke-Helfer: Maschine aus Profil anlegen (machine.json) und Argv drucken.
-//! Aufruf: smoke make <profile> <dir> <name> [rom|floppy=<path>] | smoke argv <dir> <qmp|port> <cores> <system>
+//! Aufruf: smoke make <profile> <dir> <name> [rom|floppy|cdrom=<path>] [boot=<auto|disk|cdrom|floppy>]
+//!         smoke argv <dir> <qmp|port> [<cores> <system>]
+//!         smoke convert <abbild> <ziel.iso>
 use std::path::{Path, PathBuf};
 use virtual_core::argv::{self, HostContext};
 use virtual_core::libretro::{self, LibretroContext};
@@ -18,6 +20,10 @@ fn main() {
             }
             for extra in &a[5..] {
                 let (kind, path) = extra.split_once('=').unwrap();
+                if kind == "boot" {
+                    m.boot = path.to_string();
+                    continue;
+                }
                 let kind = match kind { "rom" => MediaKind::Rom, "floppy" => MediaKind::Floppy, _ => MediaKind::Cdrom };
                 m.media.push(MediaRef { id: format!("m{}", m.media.len()), kind, path: path.into(), slot: 0 });
             }
@@ -49,6 +55,14 @@ fn main() {
                 for x in libretro::retroarch_argv(&m, &ctx, &core, &cfg_path).unwrap() { println!("{x}"); }
             }
         }
-        _ => panic!("make|argv"),
+        "convert" => {
+            let a1 = virtual_core::image::analyze(Path::new(&a[2])).unwrap();
+            println!("{:?}", a1);
+            if a1.layout.is_some() {
+                let r = virtual_core::image::write_iso(&a1, Path::new(&a[3])).unwrap();
+                println!("{} Sektoren aus {} geschrieben", r.sectors, r.kind);
+            }
+        }
+        _ => panic!("make|argv|convert"),
     }
 }

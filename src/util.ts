@@ -80,7 +80,7 @@ export const CPU_OPTIONS: Record<string, string[]> = {
 
 export function extensionsForProfile(p: Profile): string[] {
   if (p.libretro) return p.libretro.extensions;
-  return ['iso', 'img', 'ima', 'dsk', 'bin', 'cue', 'chd', 'dmg', 'toast'];
+  return ['iso', 'nrg', 'bin', 'cue', 'mdf', 'mds', 'ccd', 'img', 'ima', 'dsk', 'cdr', 'dmg', 'toast'];
 }
 
 /** Eindeutigen Vorschlag für den Maschinennamen bilden. */
@@ -92,4 +92,11 @@ export function suggestName(base: string, machines: Machine[]): string {
     if (!taken.has(n.toLowerCase())) return n;
   }
   return `${base} ${Date.now()}`;
+}
+
+/** CD-Abbilder, die beim Einlegen nach ISO gewandelt werden (Backend entscheidet endgültig). */
+export const CD_EXTENSIONS = ['iso', 'nrg', 'bin', 'cue', 'mdf', 'mds', 'ccd', 'img', 'cdr', 'toast', 'dmg'];
+export function mayNeedConversion(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  return ['nrg', 'bin', 'cue', 'mdf', 'mds', 'ccd'].includes(ext);
 }

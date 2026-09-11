@@ -41,6 +41,14 @@ fn resolve(dir: &Path, p: &str) -> String {
     }
 }
 
+/// Bootgerät der Maschine: `auto` | `disk` | `cdrom` | `floppy` (leer/unbekannt = auto).
+pub fn boot_device(m: &Machine) -> String {
+    match m.boot.as_str() {
+        b @ ("disk" | "cdrom" | "floppy") => b.to_string(),
+        _ => "auto".to_string(),
+    }
+}
+
 /// `-icount shift=N`: 100 % = aus; 75 % ≈ shift 1, 60 % ≈ 2, ≤ 40 % = 3.
 pub fn icount_shift(clock_percent: u32) -> Option<u32> {
     match clock_percent {
@@ -142,20 +150,42 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
         push(&mut a, "-device");
         push(&mut a, "virtio-scsi-pci,id=scsi0");
     }
+    // Boot-Reihenfolge über bootindex: die gewünschte Klasse bekommt die kleinen Indizes.
+    // `auto`: CD zuerst (wenn eingelegt), dann Platte, dann Diskette. SeaBIOS/OVMF probieren
+    // ungelistete Geräte danach — mit `strict=on` (ausdrückliche Wahl) halten sie stattdessen an.
+    // Ausdrückliche Wahl: nur diese Klasse bekommt einen bootindex, alles andere keinen —
+    // zusammen mit `strict=on` hält die Firmware dann an, statt auf die CD zurückzufallen.
+    let has_cd = m.media.iter().any(|x| x.kind == MediaKind::Cdrom);
+    let (disk_base, cd_base, floppy_base): (Option<usize>, Option<usize>, Option<usize>) = match boot_device(m).as_str() {
+        "disk" => (Some(1), None, None),
+        "cdrom" => (None, Some(1), None),
+        "floppy" => (None, None, Some(1)),
+        _ if has_cd => (Some(10), Some(1), Some(20)),
+        _ => (Some(1), Some(10), Some(20)),
+    };
+    let bi = |base: Option<usize>, n: usize| base.map(|b| format!(",bootindex={}", b + n)).unwrap_or_default();
+    // Klassische PC-Boards (pc, isapc): IDE-Geräte einzeln, damit sie einen bootindex tragen.
+    let pc_ide = bus == "ide" && !integrated_board(&m.machine_type);
     for (i, d) in m.disks.iter().enumerate() {
         let file = resolve(&ctx.machine_dir, &d.path);
         match bus {
+            "ide" if pc_ide => {
+                push(&mut a, "-drive");
+                a.push(format!("file={file},format={},if=none,id=disk{i}", d.format));
+                push(&mut a, "-device");
+                a.push(format!("ide-hd,drive=disk{i},bus=ide.{},unit={}{}", i / 2, i % 2, bi(disk_base, i)));
+            }
             "virtio" => {
                 push(&mut a, "-drive");
                 a.push(format!("file={file},format={},if=none,id=disk{i},cache=writeback,discard=unmap", d.format));
                 push(&mut a, "-device");
-                a.push(format!("virtio-blk-pci,drive=disk{i},bootindex={}", i + 1));
+                a.push(format!("virtio-blk-pci,drive=disk{i}{}", bi(disk_base, i)));
             }
             "sata" => {
                 push(&mut a, "-drive");
                 a.push(format!("file={file},format={},if=none,id=disk{i}", d.format));
                 push(&mut a, "-device");
-                a.push(format!("ide-hd,drive=disk{i},bus=ide.{i},bootindex={}", i + 1));
+                a.push(format!("ide-hd,drive=disk{i},bus=ide.{i}{}", bi(disk_base, i)));
             }
             "scsi" => {
                 push(&mut a, "-drive");
@@ -178,13 +208,19 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
                 push(&mut a, "-drive");
                 let ifc = match bus {
                     "virtio" | "sata" => "none".to_string(),
+                    "ide" if pc_ide => "none".to_string(),
                     "scsi" => "scsi".to_string(),
                     _ => "ide".to_string(),
                 };
                 if ifc == "none" {
                     a.push(format!("file={file},format=raw,if=none,id=cd{},media=cdrom,readonly=on", med.slot));
                     push(&mut a, "-device");
-                    a.push(format!("ide-cd,drive=cd{},bootindex={}", med.slot, 10 + med.slot));
+                    if pc_ide {
+                        // Sekundärer IDE-Kanal, wie beim echten PC der Zeit
+                        a.push(format!("ide-cd,drive=cd{},bus=ide.1,unit={}{}", med.slot, med.slot.min(1), bi(cd_base, med.slot as usize)));
+                    } else {
+                        a.push(format!("ide-cd,drive=cd{}{}", med.slot, bi(cd_base, med.slot as usize)));
+                    }
                 } else {
                     a.push(format!("file={file},format=raw,if={ifc},index={cd_index},media=cdrom,readonly=on"));
                     cd_index += 1;
@@ -194,8 +230,16 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
                 // Explizit raw (sonst warnt QEMU und sperrt Block 0) und schreibgeschützt:
                 // beschreibbare Disketten-Images kennen keine internen Snapshots und
                 // würden `savevm` für die ganze Maschine blockieren.
+                let unit = med.slot.min(1);
                 push(&mut a, "-drive");
-                a.push(format!("if=floppy,index={},format=raw,readonly=on,file={file}", med.slot.min(1)));
+                a.push(format!("if=floppy,index={unit},format=raw,readonly=on,file={file}"));
+                if pc_ide {
+                    // Der Board-Controller trägt den bootindex der Diskette (A/B)
+                    if let Some(b) = floppy_base {
+                        push(&mut a, "-global");
+                        a.push(format!("isa-fdc.bootindex{}={}", if unit == 0 { "A" } else { "B" }, b + unit as usize));
+                    }
+                }
             }
             MediaKind::Rom => {
                 push(&mut a, "-bios");
@@ -215,11 +259,25 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
     if !m.media.iter().any(|x| x.kind == MediaKind::Cdrom) && m.disks.is_empty() {
         // Nichts zum Booten — QEMU soll wenigstens sauber starten
     }
-    // Boot-Reihenfolge klassischer Boards: Diskette, CD, Platte
-    if matches!(bus, "ide" | "scsi") && !integrated_board(&m.machine_type) {
+    // Boot: Reihenfolge steckt in den bootindex-Werten; F12-Menü immer, ausdrückliche Wahl strikt
+    // (sonst fällt SeaBIOS nach den gelisteten Geräten auf alle übrigen zurück).
+    if !integrated_board(&m.machine_type) {
         push(&mut a, "-boot");
-        let order = if m.media.iter().any(|x| x.kind == MediaKind::Cdrom) { "order=dc,menu=on" } else { "order=c,menu=on" };
-        push(&mut a, order);
+        if bus == "scsi" {
+            // Legacy-SCSI ohne bootindex: klassische Reihenfolge
+            let order = match boot_device(m).as_str() {
+                "disk" => "c",
+                "cdrom" => "dc",
+                "floppy" => "ac",
+                _ if has_cd => "dc",
+                _ => "c",
+            };
+            a.push(format!("order={order},menu=on"));
+        } else if boot_device(m) != "auto" {
+            push(&mut a, "menu=on,strict=on");
+        } else {
+            push(&mut a, "menu=on");
+        }
     }
 
     // --- Grafik, Eingabe, Audio --------------------------------------------
@@ -421,7 +479,9 @@ mod tests {
         assert!(a.iter().any(|x| x == "sb16,audiodev=snd0"));
         assert!(a.iter().any(|x| x == "adlib,audiodev=snd0"));
         assert!(a.iter().any(|x| x.starts_with("if=floppy") && x.contains("readonly=on")), "leeres Diskettenlaufwerk, snapshot-fähig");
-        assert!(a.iter().any(|x| x.contains("/vm/test/disk-0.qcow2") && x.contains("if=ide")));
+        assert!(a.iter().any(|x| x.contains("/vm/test/disk-0.qcow2") && x.contains("if=none,id=disk0")));
+        assert!(a.iter().any(|x| x == "ide-hd,drive=disk0,bus=ide.0,unit=0,bootindex=1"), "Platte am primären IDE-Kanal mit bootindex");
+        assert!(has_pair(&a, "-boot", "menu=on"));
     }
 
     #[test]
@@ -466,11 +526,54 @@ mod tests {
     }
 
     #[test]
+    fn boot_device_controls_order_and_bootindex() {
+        // klassisches PC-Board: IDE-Geräte einzeln mit bootindex
+        let mut m = machine("pc-1996-pentium133");
+        m.media.push(MediaRef { id: "c".into(), kind: MediaKind::Cdrom, path: "win98.iso".into(), slot: 0 });
+        m.media.push(MediaRef { id: "f".into(), kind: MediaKind::Floppy, path: "boot.img".into(), slot: 0 });
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        assert!(a.iter().any(|x| x == "ide-cd,drive=cd0,bus=ide.1,unit=0,bootindex=1"), "auto + CD → CD zuerst");
+        assert!(a.iter().any(|x| x == "ide-hd,drive=disk0,bus=ide.0,unit=0,bootindex=10"));
+        assert!(has_pair(&a, "-global", "isa-fdc.bootindexA=20"));
+        assert!(has_pair(&a, "-boot", "menu=on"), "auto: nicht strikt");
+        m.boot = "disk".into();
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        assert!(a.iter().any(|x| x == "ide-hd,drive=disk0,bus=ide.0,unit=0,bootindex=1"), "nach der Installation: Platte");
+        assert!(a.iter().any(|x| x == "ide-cd,drive=cd0,bus=ide.1,unit=0"), "CD ohne bootindex → wird bei strict übersprungen");
+        assert!(!a.iter().any(|x| x.starts_with("isa-fdc.bootindex")));
+        assert!(has_pair(&a, "-boot", "menu=on,strict=on"), "ausdrückliche Wahl: strikt");
+        m.boot = "floppy".into();
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        assert!(has_pair(&a, "-global", "isa-fdc.bootindexA=1"));
+        assert!(a.iter().any(|x| x == "ide-hd,drive=disk0,bus=ide.0,unit=0"));
+        m.boot = "unsinn".into();
+        assert!(has_pair(&qemu_argv(&m, &ctx(None)).unwrap(), "-boot", "menu=on"), "unbekannt = auto");
+        // Legacy-SCSI-Board ohne Integration bleibt bei -boot order=
+        let mut q = machine("pc-1999-pentium3");
+        q.devices.storage_bus = "scsi".into();
+        q.boot = "cdrom".into();
+        assert!(has_pair(&qemu_argv(&q, &ctx(None)).unwrap(), "-boot", "order=dc,menu=on"));
+        // bootindex-Board
+        let mut q = machine("modern-x86-uefi");
+        q.media.push(MediaRef { id: "c".into(), kind: MediaKind::Cdrom, path: "/iso/x.iso".into(), slot: 0 });
+        let a = qemu_argv(&q, &ctx(Some("hvf"))).unwrap();
+        assert!(a.iter().any(|x| x.starts_with("virtio-blk-pci") && x.ends_with("bootindex=10")), "auto + CD: Platte nach der CD");
+        assert!(a.iter().any(|x| x.starts_with("ide-cd") && x.ends_with("bootindex=1")));
+        assert!(has_pair(&a, "-boot", "menu=on"));
+        q.boot = "disk".into();
+        let a = qemu_argv(&q, &ctx(Some("hvf"))).unwrap();
+        assert!(a.iter().any(|x| x.starts_with("virtio-blk-pci") && x.ends_with("bootindex=1")));
+        assert!(a.iter().any(|x| x == "ide-cd,drive=cd0"), "nur die Platte ist gelistet");
+        assert!(has_pair(&a, "-boot", "menu=on,strict=on"));
+    }
+
+    #[test]
     fn floppy_is_raw_and_read_only() {
         let mut m = machine("pc-1996-pentium133");
         m.media.push(MediaRef { id: "f".into(), kind: MediaKind::Floppy, path: "boot.img".into(), slot: 0 });
         let a = qemu_argv(&m, &ctx(None)).unwrap();
         assert!(has_pair(&a, "-drive", "if=floppy,index=0,format=raw,readonly=on,file=/vm/test/boot.img"));
+        assert!(has_pair(&a, "-global", "isa-fdc.bootindexA=20"));
         assert!(!a.contains(&"-fda".to_string()));
         assert_eq!(a.iter().filter(|x| x.starts_with("if=floppy")).count(), 1, "kein zweites leeres Laufwerk");
     }

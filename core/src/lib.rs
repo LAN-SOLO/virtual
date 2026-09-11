@@ -4,6 +4,7 @@
 
 pub mod argv;
 pub mod detect;
+pub mod image;
 pub mod libretro;
 pub mod model;
 pub mod profile;

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
+use virtual_core::image;
 use virtual_core::{load_profiles, Engine, Machine, MachineStatus, MediaKind, MediaRef, Profile, Snapshot};
 use virtual_core::{DiskRef, EngineInfo};
 
@@ -76,6 +77,37 @@ fn media_kind_for(path: &str, engine: Engine) -> MediaKind {
     }
 }
 
+/// Endungen, die ohne Wandlung sicher nicht laufen — hier muss die Analyse gelingen.
+fn must_convert(path: &str) -> bool {
+    let ext = Path::new(path).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    matches!(ext.as_str(), "nrg" | "cue" | "mds" | "ccd")
+}
+
+/// CD-Abbild einlegen: was QEMU nicht direkt liest (NRG, BIN/CUE, MDF, rohe 2352er),
+/// wird als `<stem>.iso` in den Maschinenordner gewandelt; sonst bleibt der Pfad wie er ist.
+fn prepare_cd_image(dir: &Path, path: &str) -> Result<String, String> {
+    let src = Path::new(path);
+    let analysis = match image::analyze(src) {
+        Ok(a) => a,
+        Err(e) if must_convert(path) => return Err(format!("Abbild nicht lesbar: {e}")),
+        // Unbekanntes Format (z. B. reine HFS-CD ohne ISO-9660): QEMU roh probieren lassen
+        Err(_) => return Ok(path.to_string()),
+    };
+    if analysis.layout.is_none() {
+        return Ok(path.to_string());
+    }
+    let dst = dir.join(image::iso_name_for(src));
+    let reuse = dst.is_file()
+        && match (dst.metadata().and_then(|m| m.modified()), src.metadata().and_then(|m| m.modified())) {
+            (Ok(d), Ok(s)) => d >= s,
+            _ => false,
+        };
+    if !reuse {
+        image::write_iso(&analysis, &dst)?;
+    }
+    Ok(dst.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string()))
+}
+
 // --- Einstellungen ----------------------------------------------------------
 
 #[tauri::command]
@@ -117,12 +149,19 @@ pub fn machine_dir(st: State<'_, Shared>, id: String) -> Result<String, String> 
 }
 
 #[tauri::command]
-pub fn create_machine(st: State<'_, Shared>, input: CreateMachineInput) -> Result<Machine, String> {
+pub async fn create_machine(st: State<'_, Shared>, input: CreateMachineInput) -> Result<Machine, String> {
+    let st = st.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || create_machine_blocking(&st, input))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn create_machine_blocking(st: &Shared, input: CreateMachineInput) -> Result<Machine, String> {
     let name = input.name.trim();
     if name.is_empty() {
         return Err("Name fehlt".into());
     }
-    let profile = profiles(&st)
+    let profile = profiles(st)
         .into_iter()
         .find(|p| p.id == input.profile_id)
         .ok_or("Profil nicht gefunden")?;
@@ -151,7 +190,19 @@ pub fn create_machine(st: State<'_, Shared>, input: CreateMachineInput) -> Resul
         m.disks.push(disk);
     }
     if let Some(p) = input.media_path.as_deref().filter(|p| !p.trim().is_empty()) {
-        m.media.push(MediaRef { id: uuid::Uuid::new_v4().to_string(), kind: media_kind_for(p, profile.engine), path: p.into(), slot: 0 });
+        let kind = media_kind_for(p, profile.engine);
+        let path = if kind == MediaKind::Cdrom {
+            match prepare_cd_image(&dir, p) {
+                Ok(x) => x,
+                Err(e) => {
+                    let _ = store::delete(&dir, true);
+                    return Err(e);
+                }
+            }
+        } else {
+            p.to_string()
+        };
+        m.media.push(MediaRef { id: uuid::Uuid::new_v4().to_string(), kind, path, slot: 0 });
     }
     if let Some(p) = input.rom_path.as_deref().filter(|p| !p.trim().is_empty()) {
         if profile.engine == Engine::Qemu {
@@ -312,11 +363,20 @@ pub fn machine_log(st: State<'_, Shared>, id: String) -> Vec<String> {
 // --- Medien -----------------------------------------------------------------
 
 #[tauri::command]
-pub fn attach_media(st: State<'_, Shared>, id: String, kind: MediaKind, path: String, slot: u32) -> Result<Machine, String> {
-    if is_running(&st, &id) {
+pub async fn attach_media(st: State<'_, Shared>, id: String, kind: MediaKind, path: String, slot: u32) -> Result<Machine, String> {
+    let st = st.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || attach_media_blocking(&st, &id, kind, path, slot))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn attach_media_blocking(st: &Shared, id: &str, kind: MediaKind, path: String, slot: u32) -> Result<Machine, String> {
+    if is_running(st, id) {
         return Err("Medienwechsel im laufenden Betrieb folgt in 0.2 — bitte erst stoppen".into());
     }
-    let (dir, mut m) = load(&st, &id)?;
+    let (dir, mut m) = load(st, id)?;
+    // Wandlung (NRG, BIN/CUE, MDF …) passiert vor dem Eintrag — bei Fehler bleibt die Maschine unverändert
+    let path = if kind == MediaKind::Cdrom && m.engine == Engine::Qemu { prepare_cd_image(&dir, &path)? } else { path };
     m.media.retain(|x| !(x.kind == kind && x.slot == slot));
     m.media.push(MediaRef { id: uuid::Uuid::new_v4().to_string(), kind, path, slot });
     m.updated_at = now_iso();

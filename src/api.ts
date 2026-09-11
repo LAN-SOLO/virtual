@@ -72,6 +72,8 @@ export interface LibretroConfig {
   bios: string[];
   stateSlot: number;
 }
+export type BootDevice = 'auto' | 'disk' | 'cdrom' | 'floppy';
+
 export interface Machine {
   id: string;
   name: string;
@@ -93,6 +95,8 @@ export interface Machine {
   sharedFolders: SharedFolder[];
   isolation: Isolation;
   libretro: LibretroConfig | null;
+  /** auto | disk | cdrom | floppy */
+  boot: BootDevice;
   extraArgs: string[];
   notes: string;
   createdAt: string;

@@ -87,6 +87,7 @@ impl Profile {
                 bios: l.bios.clone(),
                 state_slot: 0,
             }),
+            boot: "auto".into(),
             extra_args: Vec::new(),
             notes: String::new(),
             created_at: now.into(),
