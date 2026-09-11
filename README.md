@@ -30,7 +30,7 @@ virtual bringt in 0.1 noch keine Engines mit, sondern nutzt installierte:
 | Engine | macOS | Windows | Linux |
 | --- | --- | --- | --- |
 | QEMU (Pflicht für PCs/Macs) | `brew install qemu` | `winget install SoftwareFreedomConservancy.QEMU` | `apt install qemu-system` / `dnf install qemu` |
-| RetroArch (für Konsolen) | `brew install --cask retroarch` | `winget install Libretro.RetroArch` | `apt install retroarch` / Flatpak |
+| RetroArch (für Konsolen) | `brew install --cask retroarch-metal` | `winget install Libretro.RetroArch` | `apt install retroarch` / Flatpak |
 | swtpm (optional, TPM 2.0) | `brew install swtpm` | — | `apt install swtpm` |
 
 Cores lädt man in RetroArch unter „Online-Updater → Core herunterladen“; BIOS-Dateien gehören

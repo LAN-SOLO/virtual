@@ -137,7 +137,7 @@ const de = {
   biosOk: '// BIOS-Dateien vollständig.',
   biosMissing: 'Fehlende BIOS-Dateien im System-Ordner:',
   biosHint: '// Der System-Ordner steht in den Einstellungen → Engines. Dateien dort ablegen, dann Maschine starten.',
-  mediaHintQemu: '// Medien wirken beim nächsten Start. Diskettenabbilder: IMG/IMA, CDs: ISO/BIN.',
+  mediaHintQemu: '// Medien wirken beim nächsten Start. Diskettenabbilder: IMG/IMA (schreibgeschützt eingelegt, damit Snapshots möglich bleiben), CDs: ISO/BIN.',
 
   // network
   netMode: 'Modus',
@@ -397,7 +397,7 @@ const en: Dict = {
   biosOk: '// BIOS files complete.',
   biosMissing: 'Missing BIOS files in the system folder:',
   biosHint: '// The system folder is set under Settings → Engines. Put the files there, then start the machine.',
-  mediaHintQemu: '// Media take effect on the next start. Floppy images: IMG/IMA, CDs: ISO/BIN.',
+  mediaHintQemu: '// Media take effect on the next start. Floppy images: IMG/IMA (inserted read-only so snapshots keep working), CDs: ISO/BIN.',
 
   netMode: 'Mode',
   netOff: 'off — no network device',

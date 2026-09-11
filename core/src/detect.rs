@@ -98,7 +98,7 @@ pub fn install_hint(host: HostOs, engine: &str) -> String {
         (HostOs::MacOs, "qemu") => "brew install qemu".into(),
         (HostOs::Windows, "qemu") => "winget install SoftwareFreedomConservancy.QEMU".into(),
         (HostOs::Linux, "qemu") => "sudo apt install qemu-system  ·  sudo dnf install qemu".into(),
-        (HostOs::MacOs, "retroarch") => "brew install --cask retroarch".into(),
+        (HostOs::MacOs, "retroarch") => "brew install --cask retroarch-metal".into(),
         (HostOs::Windows, "retroarch") => "winget install Libretro.RetroArch".into(),
         (HostOs::Linux, "retroarch") => "sudo apt install retroarch  ·  flatpak install org.libretro.RetroArch".into(),
         (HostOs::MacOs, "swtpm") => "brew install swtpm".into(),

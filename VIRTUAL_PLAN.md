@@ -40,7 +40,7 @@ Engine, Maschine, Beschleuniger und Geräte:
   bzw. `virtio-gpu-gl` für beschleunigte Grafik, SPICE-Agent für Zwischenablage/Auflösung.
 - **Emulation** (alte x86-Gäste): `-M pc` (i440FX + PIIX3), CPU-Modell passend zur Epoche
   (`486`, `pentium`, `pentium2`, `pentium3`), `-icount` als Taktregler, Cirrus-VGA/VESA,
-  `sb16` + `adlib`, Diskette `-fda/-fdb`, IDE-CD, RTL8139/NE2000-ISA, PS/2. Ohne Beschleuniger,
+  `sb16` + `adlib`, Diskette (`-drive if=floppy`, raw, schreibgeschützt), IDE-CD, RTL8139/NE2000-ISA, PS/2. Ohne Beschleuniger,
   reines TCG — absichtlich, damit Windows 95 nicht am Timer verschluckt.
 - **Emulation** (fremde Architekturen): `-M q800` (68040, Mac OS 7.1–8.1, Quadra-800-ROM),
   `-M mac99`/`g3beige` (PowerPC, Mac OS 8.5–9.2, OpenBIOS), `-M next-cube` (NeXTSTEP 68k,
@@ -209,3 +209,26 @@ nur auf Nutzerklick je Gerät.
   Boot-Komfort (Schlüssel-Enrollment), Bridged-Netz mit Adapterwahl, physische Datenträger.
 - später: Engine-Adapter für Amiga und RISC OS, Community-Profile, Übergabe an all/backed
   (Maschinen-Ordner als Backup-Quelle).
+
+## Smoke-Test 0.1 auf macOS (2026-09-11) — Befunde
+
+Getestet mit QEMU 11.1.1 (Homebrew) und RetroArch 1.22.2 auf Apple Silicon; Profile
+„PC 1996 — Pentium 133" (FreeDOS-1.3-Boot-Diskette) und „Super Nintendo" (Homebrew-ROM).
+
+- QEMU: `-name …,process=…` bricht außerhalb von Linux ab → Prozessname nur unter Linux.
+- QEMU: Disketten werden als `-drive if=floppy,format=raw,readonly=on` eingelegt. Beschreibbare
+  Disketten-Images (und das leere `null-co`-Laufwerk) blockieren sonst `savevm` für die ganze
+  Maschine („Device 'floppy0' is writable but does not support snapshots").
+- QEMU: Pause/Weiter, Reset, `savevm` im Lauf, ACPI-Aus (ohne ACPI-Gast wirkungslos → `quit`
+  nach 10 s) und `quit` funktionieren; Boot von Diskette trotz `-boot order=c` (SeaBIOS fällt durch).
+- RetroArch: `GET_STATUS` über UDP stürzt in 1.22.2 mit SIGSEGV ab — im x86_64- **und** im
+  nativen Metal-Build. Der Pausenzustand wird deshalb lokal geführt; `GET_STATUS` bleibt tabu,
+  bis ein Upstream-Fix da ist.
+- RetroArch: Save States landen standardmäßig in `states/<Core>/…` → `sort_savestates_enable`
+  und Verwandte aus; ebenso `history_list_enable` (kein Verlauf in ~/Documents/RetroArch) und
+  `quit_press_twice` (sonst braucht QUIT zwei Kommandos).
+- RetroArch: der Homebrew-Cask `retroarch` ist nur x86_64 und hängt unter Rosetta nach QUIT im
+  Beenden (Daten sind gesichert, die App killt nach 5 s). Der Cask `retroarch-metal` ist universal,
+  beendet sauber → Installationshinweis geändert. Cores müssen zur Binary-Architektur passen.
+- Hilfsprogramm: `cargo run -p virtual-core --example smoke` legt Maschinen aus Profilen an und
+  druckt die erzeugte Kommandozeile — Grundlage für die Skripte des Smoke-Tests.

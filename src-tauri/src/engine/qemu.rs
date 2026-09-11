@@ -174,6 +174,7 @@ pub fn context(m: &Machine, dir: &Path, settings: &Settings, qmp_endpoint: Strin
         tpm_socket,
         display_backend: d::display_backend(host).into(),
         audio_backend: d::audio_backend(host).into(),
+        process_names: host == HostOs::Linux,
     };
     Ok((bin, ctx))
 }

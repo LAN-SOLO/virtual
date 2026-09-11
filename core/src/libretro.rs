@@ -17,7 +17,9 @@ pub mod cmd {
     pub const FAST_FORWARD: &str = "FAST_FORWARD";
     pub const MENU_TOGGLE: &str = "MENU_TOGGLE";
     pub const QUIT: &str = "QUIT";
-    /// Antwortet mit `GET_STATUS <PAUSED|PLAYING|CONTENTLESS> <core>,<content>,crc32=…`
+    /// Antwortet mit `GET_STATUS <PAUSED|PLAYING|CONTENTLESS> <core>,<content>,crc32=…`.
+    /// **Nicht im laufenden Betrieb senden:** RetroArch 1.22.2 (macOS) stürzt beim
+    /// Beantworten mit SIGSEGV ab. Der Pausenzustand wird deshalb lokal geführt.
     pub const GET_STATUS: &str = "GET_STATUS";
 }
 
@@ -80,10 +82,20 @@ pub fn machine_config(m: &Machine, ctx: &LibretroContext) -> String {
     s.push_str("network_cmd_enable = \"true\"\n");
     s.push_str(&format!("network_cmd_port = \"{}\"\n", ctx.cmd_port));
     s.push_str(&format!("video_fullscreen = \"{}\"\n", if m.display.fullscreen { "true" } else { "false" }));
+    // Save States und SRAM flach in die Maschinenordner — ohne Core-/Inhalts-Unterordner,
+    // sonst findet die App `states/<rom>.state` nicht.
+    s.push_str("sort_savefiles_enable = \"false\"\n");
+    s.push_str("sort_savestates_enable = \"false\"\n");
+    s.push_str("sort_savefiles_by_content_enable = \"false\"\n");
+    s.push_str("sort_savestates_by_content_enable = \"false\"\n");
+    // Kein Verlauf in ~/Documents/RetroArch — die Maschine bleibt in ihrem Ordner
+    s.push_str("history_list_enable = \"false\"\n");
     s.push_str("savestate_auto_index = \"false\"\n");
     s.push_str("savestate_auto_save = \"false\"\n");
     s.push_str("savestate_auto_load = \"false\"\n");
     s.push_str("pause_nonactive = \"false\"\n");
+    // Sonst verlangt RetroArch das QUIT-Kommando zweimal und das sanfte Beenden verpufft
+    s.push_str("quit_press_twice = \"false\"\n");
     s.push_str("config_save_on_exit = \"false\"\n");
     // Konsolen sind offline: kein Netplay, keine Cheevos, keine Updates aus dem Core-Menü
     s.push_str("netplay_enable = \"false\"\n");
@@ -205,6 +217,9 @@ mod tests {
         assert!(cfg.contains("network_cmd_port = \"55400\""));
         assert!(cfg.contains("system_directory = \"/system\""));
         assert!(cfg.contains("savestate_directory = \"/vm/snes/states\""));
+        assert!(cfg.contains("sort_savestates_enable = \"false\""), "States flach im Ordner");
+        assert!(cfg.contains("history_list_enable = \"false\""));
+        assert!(cfg.contains("quit_press_twice = \"false\""), "QUIT muss beim ersten Mal wirken");
     }
 
     #[test]

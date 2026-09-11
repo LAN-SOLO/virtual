@@ -125,32 +125,14 @@ fn send_cmd(port: u16, command: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Kommando mit Antwort (GET_STATUS).
-fn query(port: u16, command: &str) -> Option<String> {
-    let s = UdpSocket::bind("127.0.0.1:0").ok()?;
-    s.set_read_timeout(Some(Duration::from_millis(600))).ok()?;
-    s.send_to(command.as_bytes(), ("127.0.0.1", port)).ok()?;
-    let mut buf = [0u8; 1024];
-    let (n, _) = s.recv_from(&mut buf).ok()?;
-    Some(String::from_utf8_lossy(&buf[..n]).into_owned())
-}
-
-/// Zustand frisch aus RetroArch holen.
+/// Zustand aus dem lokal geführten Pausen-Flag ableiten.
+///
+/// RetroArch kennt zwar `GET_STATUS`, aber 1.22.2 auf macOS stürzt beim
+/// Beantworten ab (SIGSEGV, im Smoke-Test reproduzierbar). Bis das stabil ist,
+/// gilt: Pause/Weiter laufen ausschließlich über die App, das Flag ist die Wahrheit.
 pub fn refresh(r: &Running) {
-    if let Ok((port, paused)) = port_of(r) {
-        if let Some(reply) = query(port, cmd::GET_STATUS) {
-            match libretro::parse_status(&reply) {
-                Some("paused") => {
-                    set_paused_flag(&paused, true);
-                    r.set_state("paused");
-                }
-                Some("running") => {
-                    set_paused_flag(&paused, false);
-                    r.set_state("running");
-                }
-                _ => {}
-            }
-        }
+    if let Ok((_, paused)) = port_of(r) {
+        r.set_state(if paused.load(Ordering::SeqCst) { "paused" } else { "running" });
     }
 }
 
@@ -264,8 +246,11 @@ pub fn restore_snapshot(m: &mut Machine, running: Option<&Running>, snap: &Snaps
 pub fn delete_snapshot(m: &Machine, dir: &Path, snap: &Snapshot) -> Result<(), String> {
     if let Ok(slot) = snap.tag.parse::<u32>() {
         if let Some(f) = state_file(m, dir, slot) {
+            let ext = f.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
             let _ = std::fs::remove_file(&f);
-            let _ = std::fs::remove_file(f.with_extension(format!("{}.auto", f.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default())));
+            let _ = std::fs::remove_file(f.with_extension(format!("{ext}.auto")));
+            // Vorschaubild, das RetroArch neben den State legt
+            let _ = std::fs::remove_file(f.with_extension(format!("{ext}.png")));
         }
     }
     let snaps: Vec<Snapshot> = crate::store::load_snapshots(dir).into_iter().filter(|s| s.id != snap.id).collect();

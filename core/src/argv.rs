@@ -23,6 +23,8 @@ pub struct HostContext {
     pub display_backend: String,
     /// Audio-Backend des Hosts: `coreaudio` | `dsound` | `pa` | `pipewire` | `none`
     pub audio_backend: String,
+    /// Host kann den Prozessnamen setzen (`-name …,process=…`) — nur Linux; macOS und Windows brechen sonst ab.
+    pub process_names: bool,
 }
 
 /// Maschinen, deren Grafik/Netz/Audio fest verdrahtet sind — kein `-device`.
@@ -189,9 +191,11 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
                 }
             }
             MediaKind::Floppy => {
-                let flag = if med.slot == 0 { "-fda" } else { "-fdb" };
-                push(&mut a, flag);
-                a.push(file);
+                // Explizit raw (sonst warnt QEMU und sperrt Block 0) und schreibgeschützt:
+                // beschreibbare Disketten-Images kennen keine internen Snapshots und
+                // würden `savevm` für die ganze Maschine blockieren.
+                push(&mut a, "-drive");
+                a.push(format!("if=floppy,index={},format=raw,readonly=on,file={file}", med.slot.min(1)));
             }
             MediaKind::Rom => {
                 push(&mut a, "-bios");
@@ -206,7 +210,7 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
     if m.devices.floppy && !m.media.iter().any(|x| x.kind == MediaKind::Floppy) && !integrated_board(&m.machine_type) {
         // Leeres Laufwerk, damit der Gast eines sieht (Disketten später einlegen).
         push(&mut a, "-drive");
-        push(&mut a, "if=floppy,index=0,media=disk,format=raw,file.driver=null-co,file.read-zeroes=on,file.size=1474560");
+        push(&mut a, "if=floppy,index=0,media=disk,format=raw,readonly=on,file.driver=null-co,file.read-zeroes=on,file.size=1474560");
     }
     if !m.media.iter().any(|x| x.kind == MediaKind::Cdrom) && m.disks.is_empty() {
         // Nichts zum Booten — QEMU soll wenigstens sauber starten
@@ -307,7 +311,11 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
         }
     }
     push(&mut a, "-name");
-    a.push(format!("{},process=virtual-{}", m.name, m.id));
+    if ctx.process_names {
+        a.push(format!("{},process=virtual-{}", m.name, m.id));
+    } else {
+        a.push(m.name.clone());
+    }
     push(&mut a, "-qmp");
     if ctx.qmp.starts_with("tcp:") {
         a.push(format!("{},server=on,wait=off", ctx.qmp));
@@ -368,6 +376,7 @@ mod tests {
             tpm_socket: Some(PathBuf::from("/vm/test/tpm/sock")),
             display_backend: "cocoa".into(),
             audio_backend: "coreaudio".into(),
+            process_names: false,
         }
     }
 
@@ -411,7 +420,7 @@ mod tests {
         assert!(has_pair(&a, "-vga", "cirrus"));
         assert!(a.iter().any(|x| x == "sb16,audiodev=snd0"));
         assert!(a.iter().any(|x| x == "adlib,audiodev=snd0"));
-        assert!(a.iter().any(|x| x.starts_with("if=floppy")), "leeres Diskettenlaufwerk");
+        assert!(a.iter().any(|x| x.starts_with("if=floppy") && x.contains("readonly=on")), "leeres Diskettenlaufwerk, snapshot-fähig");
         assert!(a.iter().any(|x| x.contains("/vm/test/disk-0.qcow2") && x.contains("if=ide")));
     }
 
@@ -454,6 +463,27 @@ mod tests {
             assert!(a.iter().any(|x| x.starts_with("unix:/vm/test/qmp.sock")));
             assert!(a.contains(&"-no-user-config".to_string()));
         }
+    }
+
+    #[test]
+    fn floppy_is_raw_and_read_only() {
+        let mut m = machine("pc-1996-pentium133");
+        m.media.push(MediaRef { id: "f".into(), kind: MediaKind::Floppy, path: "boot.img".into(), slot: 0 });
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        assert!(has_pair(&a, "-drive", "if=floppy,index=0,format=raw,readonly=on,file=/vm/test/boot.img"));
+        assert!(!a.contains(&"-fda".to_string()));
+        assert_eq!(a.iter().filter(|x| x.starts_with("if=floppy")).count(), 1, "kein zweites leeres Laufwerk");
+    }
+
+    #[test]
+    fn process_name_only_where_supported() {
+        let m = machine("pc-1996-pentium133");
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        assert!(has_pair(&a, "-name", "Test"), "macOS: kein process=");
+        let mut c = ctx(None);
+        c.process_names = true;
+        let a = qemu_argv(&m, &c).unwrap();
+        assert!(has_pair(&a, "-name", "Test,process=virtual-m1"));
     }
 
     #[test]
