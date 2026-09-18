@@ -210,10 +210,11 @@ mod tests {
         let m = machine();
         let c = ctx();
         let a = retroarch_argv(&m, &c, Path::new("/cores/swanstation_libretro.dylib"), Path::new("/vm/snes/retroarch.cfg")).unwrap();
+        let a: Vec<String> = a.iter().map(|x| x.replace('\\', "/")).collect();
         assert_eq!(a[0], "-L");
         assert!(a.contains(&"--fullscreen".to_string()));
         assert_eq!(a.last().unwrap(), "/games/game.cue");
-        let cfg = machine_config(&m, &c);
+        let cfg = machine_config(&m, &c).replace('\\', "/");
         assert!(cfg.contains("network_cmd_port = \"55400\""));
         assert!(cfg.contains("system_directory = \"/system\""));
         assert!(cfg.contains("savestate_directory = \"/vm/snes/states\""));

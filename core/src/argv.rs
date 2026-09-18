@@ -447,6 +447,11 @@ mod tests {
         m
     }
 
+    /// Pfadtrenner plattformneutral (Windows baut `\vm\test`).
+    fn norm(a: &[String]) -> Vec<String> {
+        a.iter().map(|x| x.replace('\\', "/")).collect()
+    }
+
     fn has_pair(a: &[String], flag: &str, value: &str) -> bool {
         a.windows(2).any(|w| w[0] == flag && w[1] == value)
     }
@@ -471,6 +476,7 @@ mod tests {
     fn retro_pc_is_isolated_throttled_and_has_floppy() {
         let m = machine("pc-1996-pentium133");
         let a = qemu_argv(&m, &ctx(None)).unwrap();
+        let a = norm(&a);
         assert!(has_pair(&a, "-M", "pc,accel=tcg"));
         assert!(has_pair(&a, "-cpu", "pentium"));
         assert!(has_pair(&a, "-icount", "shift=1,align=off,sleep=on"));
@@ -501,6 +507,7 @@ mod tests {
         let mut m = machine("mac-1994-quadra");
         m.media.push(MediaRef { id: "r".into(), kind: MediaKind::Rom, path: "Q800.ROM".into(), slot: 0 });
         let a = qemu_argv(&m, &ctx(None)).unwrap();
+        let a = norm(&a);
         assert!(has_pair(&a, "-M", "q800,accel=tcg"));
         assert!(has_pair(&a, "-bios", "/vm/test/Q800.ROM"));
         assert!(!a.iter().any(|x| x.contains("nubus-macfb")), "Board-Grafik nicht als -device");
@@ -572,6 +579,7 @@ mod tests {
         let mut m = machine("pc-1996-pentium133");
         m.media.push(MediaRef { id: "f".into(), kind: MediaKind::Floppy, path: "boot.img".into(), slot: 0 });
         let a = qemu_argv(&m, &ctx(None)).unwrap();
+        let a = norm(&a);
         assert!(has_pair(&a, "-drive", "if=floppy,index=0,format=raw,readonly=on,file=/vm/test/boot.img"));
         assert!(has_pair(&a, "-global", "isa-fdc.bootindexA=20"));
         assert!(!a.contains(&"-fda".to_string()));
