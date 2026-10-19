@@ -106,6 +106,18 @@ const de: Content = {
   ],
   sections: [
     {
+      id: 'v1',
+      title: 'Version 1.0',
+      body: [
+        'Version 1.0 ist die erste Testfassung für macOS und Windows nach einem vollständigen Funktions- und Sicherheits-Audit.',
+        '• Aktuelle Profile (UEFI x86, ARM) starten wieder: HD-Audio bekommt seinen Codec.',
+        '• Namen und Pfade mit Komma brechen die Kommandozeile nicht mehr; lange Maschinennamen ebenso wenig.',
+        '• Port-Weiterleitungen und VNC nur auf 127.0.0.1; Links öffnen nur https, nie Dateien.',
+        '• Fenster friert bei Snapshots und Start nicht mehr ein; Windows öffnet keine Konsolenfenster mehr.',
+        '• Schließen mit laufenden Maschinen fragt nach; was der Host nicht kann (TPM, OpenGL, Ordner), steht im Log.',
+      ],
+    },
+    {
       id: 'engines',
       title: 'Engines installieren',
       body: [
@@ -303,6 +315,18 @@ const en: Content = {
     },
   ],
   sections: [
+    {
+      id: 'v1',
+      title: 'Version 1.0',
+      body: [
+        'Version 1.0 is the first test release for macOS and Windows after a complete functional and security audit.',
+        '• Current profiles (UEFI x86, ARM) start again: HD audio gets its codec.',
+        '• Names and paths containing commas no longer break the command line; neither do long machine names.',
+        '• Port forwards and VNC on 127.0.0.1 only; links open https only, never files.',
+        '• The window no longer freezes during snapshots and start; Windows no longer opens console windows.',
+        '• Closing with machines running asks first; whatever the host cannot do (TPM, OpenGL, folders) is noted in the log.',
+      ],
+    },
     {
       id: 'engines',
       title: 'Installing engines',

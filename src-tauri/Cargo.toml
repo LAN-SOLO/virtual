@@ -1,6 +1,6 @@
 [package]
 name = "virtual"
-version = "0.1.0"
+version = "1.0.0"
 description = "virtual — virtuelle Maschinen für heute und damals"
 edition = "2021"
 license = "MIT"

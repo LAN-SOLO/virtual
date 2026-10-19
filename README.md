@@ -21,17 +21,20 @@ Virtualization.framework) als separate Prozesse. Details, Datenmodell und Roadma
 - **Konsolen:** Spielkonsolen und Handhelds (NES bis Dreamcast, Arcade, MSX) als dritte
   Maschinenklasse über RetroArch/libretro-Cores — Save States werden zu Snapshots.
 
-Status: Version 0.1 in Arbeit (Vorabzugang, keine Downloads) — Website: https://lan-solo.com/de/tools/virtual/
+Status: Version 1.0 — Testfassung für macOS und Windows (Audit: `AUDIT-1.0.md`) — Website: https://lan-solo.com/de/tools/virtual/
 
 ## Voraussetzungen
 
-virtual bringt in 0.1 noch keine Engines mit, sondern nutzt installierte:
+virtual bringt keine Engines mit, sondern nutzt installierte:
 
 | Engine | macOS | Windows | Linux |
 | --- | --- | --- | --- |
 | QEMU (Pflicht für PCs/Macs) | `brew install qemu` | `winget install SoftwareFreedomConservancy.QEMU` | `apt install qemu-system` / `dnf install qemu` |
 | RetroArch (für Konsolen) | `brew install --cask retroarch-metal` | `winget install Libretro.RetroArch` | `apt install retroarch` / Flatpak |
 | swtpm (optional, TPM 2.0) | `brew install swtpm` | — | `apt install swtpm` |
+| Samba (optional, SMB-Ordner für alte Gäste) | `brew install samba` | — | `apt install samba` |
+
+Windows: Für die Beschleunigung (WHPX) das Windows-Feature „Windows-Hypervisorplattform“ aktivieren.
 
 Cores lädt man in RetroArch unter „Online-Updater → Core herunterladen“; BIOS-Dateien gehören
 in den System-Ordner (Einstellungen → Engines zeigt die Pfade).
@@ -42,6 +45,10 @@ in den System-Ordner (Einstellungen → Engines zeigt die Pfade).
 pnpm install
 pnpm tauri dev
 cargo test --workspace
+# gegen echte Engines (macOS/Linux, QEMU bzw. RetroArch installiert):
+cargo test -p virtual -- --ignored qemu_live
+cargo run -p virtual-core --example qemucheck
+cargo run -p virtual-core --example retrocheck <retroarch> <cores-ordner> <rom>
 ```
 
 Der Rust-Kern (`core/`, Crate `virtual-core`) ist Tauri-frei und testbar: Datenmodell,

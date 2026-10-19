@@ -4,7 +4,7 @@ import { EngineInfo, Settings, UpdateInfo, api } from '../api';
 import { Dict } from '../i18n';
 import { IconCheck, IconExternalLink, IconWarn } from '../icons';
 
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '1.0.0';
 
 type SetTab = 'general' | 'engines' | 'folders' | 'app';
 
