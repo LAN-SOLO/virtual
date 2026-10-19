@@ -8,6 +8,8 @@ pub struct AppState {
     pub settings: Mutex<Settings>,
     /// Laufende Engine-Prozesse je Maschinen-Id.
     pub runtime: Mutex<HashMap<String, std::sync::Arc<Running>>>,
+    /// Maschinen, deren Start gerade läuft (Doppelklick darf keinen zweiten Prozess starten).
+    pub starting: Mutex<std::collections::HashSet<String>>,
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
 }

@@ -65,7 +65,7 @@ QEMU/RetroArch auf macOS 26 / Apple Silicon, oder Oberfläche im Browser mit gem
 | Schwere | Befund | Status |
 | --- | --- | --- |
 | Mittel | Port-Weiterleitungen banden auf alle Interfaces (`hostfwd=tcp::P`) — ungepatchte Alt-Systeme waren aus dem LAN erreichbar | behoben: `127.0.0.1` |
-| Mittel | `open_path` öffnete beliebige Pfade (öffnen = ausführen bei .app/.exe/.command) | behoben: nur https und vorhandene Ordner |
+| Mittel | `open_path` öffnete beliebige Pfade (öffnen = ausführen bei .app/.exe/.command) | behoben: nur https und Ordner im Maschinenordner (siehe Verifikation: `.app`-Bundles sind Ordner) |
 | Mittel | Option-Injektion über Kommas in Namen/Pfaden in QEMU-Optionen | behoben: Maskierung |
 | Mittel | rustls 0.23.44 (RUSTSEC-2026-0285/0346–0349) | behoben: 0.23.46 |
 | Hoch (dev) | source-map-js < 1.2.2 (nur Build-Werkzeug) | behoben: 1.2.2 |
@@ -106,6 +106,8 @@ Zusatzargumente (nested) gehen bewusst ungefiltert an QEMU — sie stehen in der
 - [ ] Weiterleitung 2222→22: `nc -z 127.0.0.1 2222` geht, von einem anderen Rechner nicht.
 - [ ] Gemeinsamer Ordner ohne Samba: Maschine startet trotzdem, Hinweis im Log.
 - [ ] Maschine mit sehr langem Namen und mit Komma im Namen starten.
+- [ ] Snapshot einer laufenden Maschine mit 4–8 GB RAM (dauert > 20 s): meldet Erfolg, Liste stimmt, danach Pause/Fortsetzen reagieren normal.
+- [ ] Start-Knopf doppelt klicken: nur ein QEMU-Prozess, zweiter Klick meldet „startet bereits“.
 - [ ] SNES-Maschine: Spiel startet, Snapshot (Save State), Wiederherstellen, Stopp.
 - [ ] virtual schließen (rotes X und ⌘Q) mit laufender Maschine → Nachfrage; Abbrechen lässt alles laufen.
 - [ ] Hell-Modus, Akzentfarben, Englisch, Handbuch DE/EN.
@@ -123,3 +125,57 @@ Zusatzargumente (nested) gehen bewusst ungefiltert an QEMU — sie stehen in der
 - [ ] Konsole (SNES/GBA) mit RetroArch: Start, Save State, Stopp (QUIT).
 - [ ] Schließen mit laufender Maschine → Nachfrage; „OK“ beendet QEMU-Prozess (Task-Manager prüfen).
 - [ ] Updater-Prüfung in Einstellungen → App meldet „aktuell“ bzw. Fehler ohne Absturz.
+
+## Verifikation (unabhängige Zweitprüfung, 2026-10-19)
+
+Zweiter Prüfer, Ziel: die Aussagen oben widerlegen. Alles unten selbst ausgeführt, außer wo „statisch“ steht.
+
+### Nachgemessen
+
+| Was | Ergebnis |
+| --- | --- |
+| `cargo test --workspace` | core 39 grün; App 9 grün (vorher 7, +2 neue QMP-Tests), 1 ignored |
+| `cargo test -p virtual -- --ignored qemu_live --nocapture` | grün, wirklich gegen `/opt/homebrew/bin/qemu-system-i386` gelaufen (Test kehrt sonst still zurück — Ausgabe geprüft) |
+| `cargo run -p virtual-core --example qemucheck` | 49 ok, 0 fehlgeschlagen |
+| `pnpm build` (tsc + vite) | grün |
+| `pnpm audit` | keine Funde |
+| `cargo audit` | nur `zip` 4.6.1 (Updater) + unmaintained-Warnungen, wie oben |
+| `cargo clippy --workspace --all-targets` | nur Stil-Warnungen |
+| `cargo check --target x86_64-pc-windows-msvc -p virtual-core --all-targets` | grün; die App selbst lässt sich auf dem Mac nicht für MSVC prüfen (`ring` braucht den MSVC-C-Compiler) — Windows-Zweige der App nur statisch |
+| i18n DE/EN | 244/244 Schlüssel, Handbuch-Abschnitte paarweise vorhanden |
+| IPC | alle 31 `invoke`-Namen und Argumente in `src/api.ts` passen zu den registrierten Rust-Kommandos (camelCase → snake_case) |
+| Version | 1.0.0 in package.json, tauri.conf.json, beiden Cargo.toml, Cargo.lock, `APP_VERSION` |
+| RetroArch (`retrocheck`) | nicht erneut ausgeführt (öffnet ein RetroArch-Fenster); Code-Änderungen dort nur gelesen |
+
+### Widerlegt bzw. unvollständig
+
+1. **`open_path` ließ weiterhin Programme starten.** Die Prüfung „nur vorhandene Ordner“ greift unter macOS
+   nicht: ein `.app`-Bundle *ist* ein Ordner, `open` startet es. Jetzt nur noch Ordner innerhalb des
+   Maschinenordners (kanonisch, `..` kann nicht ausbrechen), ohne Bundle-Endungen (`.app`, `.bundle`, …).
+   Die Oberfläche öffnet ohnehin nur Maschinenordner. Unit-Test erweitert (außerhalb, `.app` innen und außen, `..`).
+2. **Lange Snapshots liefen in den 20-s-Lese-Timeout.** `savevm`/`loadvm` schreiben bzw. lesen den gesamten
+   Gast-RAM; bei 4–8 GB (Windows-11-Profil) dauert das länger als 20 s. Folge: Fehlermeldung, obwohl QEMU
+   weiter sichert — und weil jede HMP-Anfrage dieselbe id `hmp` hatte, wäre die verspätete Antwort dem
+   *nächsten* Aufruf zugeordnet worden (falscher Erfolg/Fehler). Jetzt: HMP wartet bis 15 min, jede Anfrage
+   bekommt eine eindeutige id, verspätete Antworten werden übersprungen. Zwei Unit-Tests mit simuliertem Strom.
+3. **Doppelklick auf Start.** Der zweite Start löschte den QMP-Socket des ersten und startete einen zweiten
+   QEMU, bevor die Kollision bemerkt wurde. Jetzt sperrt eine „startet gerade“-Menge den zweiten Start sofort.
+4. Fehlertext „Medienwechsel … folgt in 0.2“ in einer 1.0 → „in einer späteren Version“.
+5. Handbuch (DE/EN) nachgezogen: Öffnen nur https-Links und Maschinenordner, keine `.app`-Bundles.
+
+### Bestätigt
+
+HDA-Codec-Fix, Komma-Maskierung, GL-Abschaltung auf macOS, Host-Fähigkeiten für 9p/SMB, localhost-Weiterleitungen,
+VNC `to=99`, kurze Socket-Pfade, `spawn_blocking` ohne gehaltene Runtime-Sperre, `CREATE_NO_WINDOW`, UEFI-Suche im
+Windows-Installer-Layout, Secure-Boot-Logik, Wegwerf-Snapshot-Ablehnung, Schließen-Nachfrage (eigener Dialog statt
+`window.confirm`), `save_machine` behält Platten/Medien/Slot (die Oberfläche bearbeitet Platten nirgends über den Entwurf).
+
+### Weiterhin offen / nur statisch
+
+- Windows-Laufzeit komplett (WHPX, SDL, dsound, QMP über TCP, MSI/NSIS) — siehe manuelle Testliste.
+- ⌘Q-Abfangen (`RunEvent::ExitRequested` mit `code: None`) nur im Code geprüft; ob macOS-„Beenden“ aus dem
+  App-Menü wirklich dort ankommt und `prevent_exit` greift, muss am Gerät getestet werden.
+- OpenGL unter Windows: `ctx.gl` gilt für jeden Nicht-macOS-Host. Ob der QEMU-Windows-Build `sdl,gl=on` und
+  `virtio-vga-gl` kann, ist ungeprüft — bei Abbruch die GL-Option abwählen (Standardprofile haben GL aus).
+- Windows-11-Gäste: ohne swtpm kein TPM — der Windows-11-Installer verweigert dann die Installation.
+- `quit_app` räumt Sockets im Temp-Ordner nicht auf (werden beim nächsten Start der Maschine ersetzt).

@@ -41,6 +41,7 @@ fn main() {
             app.manage(Arc::new(AppState {
                 settings: Mutex::new(s),
                 runtime: Mutex::new(HashMap::new()),
+                starting: Mutex::new(Default::default()),
                 config_dir,
                 data_dir,
             }));

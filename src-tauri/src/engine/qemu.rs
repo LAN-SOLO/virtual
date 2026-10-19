@@ -26,6 +26,8 @@ pub struct QmpClient {
     writer: Box<dyn Write + Send>,
     state: Arc<Mutex<String>>,
     pub version: String,
+    /// Laufende Nummer für eindeutige Antwort-ids.
+    seq: u64,
 }
 
 fn open_stream(endpoint: &str) -> Result<(Box<dyn Read + Send>, Box<dyn Write + Send>), String> {
@@ -64,7 +66,7 @@ impl QmpClient {
                 Err(e) => return Err(format!("QMP-Verbindung fehlgeschlagen: {e}")),
             }
         };
-        let mut c = QmpClient { reader: BufReader::new(r), writer: w, state, version: String::new() };
+        let mut c = QmpClient { reader: BufReader::new(r), writer: w, state, version: String::new(), seq: 0 };
         // Begrüßung lesen
         let mut line = String::new();
         c.reader.read_line(&mut line).map_err(|e| format!("QMP-Begrüßung: {e}"))?;
@@ -85,21 +87,38 @@ impl QmpClient {
         }
     }
 
-    /// Sendet eine Kommandozeile (JSON mit `id`) und liefert das `return`.
+    /// Sendet eine Kommandozeile (JSON mit `id`) und liefert das `return` (bis 20 s).
     pub fn send(&mut self, line: &str) -> Result<Value, String> {
-        let want_id: Option<String> = serde_json::from_str::<Value>(line)
-            .ok()
-            .and_then(|v| v.get("id").and_then(Value::as_str).map(String::from));
+        self.send_wait(line, Duration::from_secs(20))
+    }
+
+    /// Wie `send`, wartet aber bis `wait` auf die Antwort. Jede Anfrage bekommt eine
+    /// eindeutige `id`: Kommt die Antwort eines abgebrochenen Aufrufs später doch noch,
+    /// wird sie übersprungen statt dem nächsten Aufruf zugeordnet.
+    pub fn send_wait(&mut self, line: &str, wait: Duration) -> Result<Value, String> {
+        self.seq += 1;
+        let mut msg: Value = serde_json::from_str(line).map_err(|e| format!("QMP-Kommando: {e}"))?;
+        let want_id = msg.get("id").and_then(Value::as_str).map(|id| format!("{id}-{}", self.seq));
+        if let (Some(obj), Some(id)) = (msg.as_object_mut(), want_id.as_ref()) {
+            obj.insert("id".into(), Value::String(id.clone()));
+        }
+        let line = msg.to_string();
         self.writer.write_all(line.as_bytes()).map_err(|e| format!("QMP senden: {e}"))?;
         self.writer.write_all(b"\n").map_err(|e| format!("QMP senden: {e}"))?;
         self.writer.flush().map_err(|e| format!("QMP senden: {e}"))?;
+        let deadline = Instant::now() + wait;
+        let mut buf = String::new();
         loop {
-            let mut buf = String::new();
-            let n = self.reader.read_line(&mut buf).map_err(|e| format!("QMP lesen: {e}"))?;
-            if n == 0 {
-                return Err("QMP-Verbindung geschlossen".into());
+            match self.reader.read_line(&mut buf) {
+                Ok(0) => return Err("QMP-Verbindung geschlossen".into()),
+                Ok(_) => {}
+                // Lese-Timeout des Sockets: bis zur Frist weiter warten (savevm mit viel RAM dauert)
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) && Instant::now() < deadline => continue,
+                Err(e) => return Err(format!("QMP lesen: {e}")),
             }
-            match qmp::parse_line(&buf) {
+            let msg = qmp::parse_line(&buf);
+            buf.clear();
+            match msg {
                 Some(qmp::Message::Return { id, value }) if id == want_id => return Ok(value),
                 Some(qmp::Message::Error { id, desc, .. }) if id == want_id => return Err(desc),
                 Some(qmp::Message::Event { name, .. }) => self.handle_event(&name),
@@ -109,12 +128,12 @@ impl QmpClient {
     }
 
     /// HMP-Kommando über QMP (`savevm`, `loadvm`, `delvm`, `info snapshots`).
+    /// Snapshots schreiben bzw. lesen den ganzen Gast-RAM — dafür bis zu 15 Minuten Zeit.
     pub fn hmp(&mut self, command: &str) -> Result<String, String> {
-        let v = self.send(&qmp::command(
-            "human-monitor-command",
-            Some(serde_json::json!({ "command-line": command })),
-            Some("hmp"),
-        ))?;
+        let v = self.send_wait(
+            &qmp::command("human-monitor-command", Some(serde_json::json!({ "command-line": command })), Some("hmp")),
+            Duration::from_secs(15 * 60),
+        )?;
         let text = v.as_str().unwrap_or("").trim().to_string();
         if text.to_lowercase().starts_with("error") || text.contains("failed") {
             return Err(text);
@@ -580,5 +599,37 @@ mod tests {
         let _ = child.kill();
         let _ = std::fs::remove_dir_all(&dir);
         eprintln!("qemu_live: QMP + Snapshots (offline/laufend) mit {} geprüft", bin.display());
+    }
+}
+
+#[cfg(test)]
+mod qmp_client_tests {
+    use super::*;
+
+    fn client(replies: &str, seq: u64) -> QmpClient {
+        QmpClient {
+            reader: BufReader::new(Box::new(std::io::Cursor::new(replies.as_bytes().to_vec()))),
+            writer: Box::new(std::io::sink()),
+            state: Arc::new(Mutex::new("running".into())),
+            version: String::new(),
+            seq,
+        }
+    }
+
+    #[test]
+    fn late_reply_of_an_aborted_call_is_skipped() {
+        // Antwort auf den abgebrochenen Aufruf 1 kommt erst jetzt, danach Event und die eigene
+        let replies = "{\"return\": \"alt\", \"id\": \"hmp-1\"}\n{\"event\": \"STOP\"}\n{\"return\": \"\", \"id\": \"hmp-2\"}\n";
+        let mut c = client(replies, 1);
+        assert_eq!(c.hmp("savevm vs-x").unwrap(), "");
+        assert_eq!(*c.state.lock().unwrap(), "paused", "Events dazwischen werden verarbeitet");
+    }
+
+    #[test]
+    fn hmp_errors_and_closed_connection() {
+        let mut c = client("{\"return\": \"Error: no snapshot\", \"id\": \"hmp-1\"}\n", 0);
+        assert!(c.hmp("loadvm x").is_err());
+        let mut c = client("", 0);
+        assert!(c.send(&qmp::query_status()).unwrap_err().contains("geschlossen"));
     }
 }

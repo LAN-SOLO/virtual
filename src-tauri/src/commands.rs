@@ -330,6 +330,20 @@ fn start_machine_blocking(app: &AppHandle, shared: &Shared, id: &str) -> Result<
     if is_running(shared, id) {
         return Err("Maschine läuft bereits".into());
     }
+    // Zweiter Start derselben Maschine, solange der erste noch hochfährt: ablehnen,
+    // bevor er Socket und Platten-Lock des ersten Prozesses anfasst.
+    if !shared.starting.lock().unwrap().insert(id.to_string()) {
+        return Err("Maschine startet bereits".into());
+    }
+    let result = start_machine_inner(app, shared, id);
+    shared.starting.lock().unwrap().remove(id);
+    result
+}
+
+fn start_machine_inner(app: &AppHandle, shared: &Shared, id: &str) -> Result<MachineStatus, String> {
+    if is_running(shared, id) {
+        return Err("Maschine läuft bereits".into());
+    }
     let (dir, mut m) = load(shared, id)?;
     let running: Running = match m.engine {
         Engine::Qemu => qemu::start(app, shared, &m, &dir)?,
@@ -469,7 +483,7 @@ pub async fn attach_media(st: State<'_, Shared>, id: String, kind: MediaKind, pa
 
 fn attach_media_blocking(st: &Shared, id: &str, kind: MediaKind, path: String, slot: u32) -> Result<Machine, String> {
     if is_running(st, id) {
-        return Err("Medienwechsel im laufenden Betrieb folgt in 0.2 — bitte erst stoppen".into());
+        return Err("Medienwechsel im laufenden Betrieb folgt in einer späteren Version — bitte erst stoppen".into());
     }
     let (dir, mut m) = load(st, id)?;
     // Wandlung (NRG, BIN/CUE, MDF …) passiert vor dem Eintrag — bei Fehler bleibt die Maschine unverändert
@@ -484,7 +498,7 @@ fn attach_media_blocking(st: &Shared, id: &str, kind: MediaKind, path: String, s
 #[tauri::command]
 pub fn detach_media(st: State<'_, Shared>, id: String, media_id: String) -> Result<Machine, String> {
     if is_running(&st, &id) {
-        return Err("Medienwechsel im laufenden Betrieb folgt in 0.2 — bitte erst stoppen".into());
+        return Err("Medienwechsel im laufenden Betrieb folgt in einer späteren Version — bitte erst stoppen".into());
     }
     let (dir, mut m) = load(&st, &id)?;
     m.media.retain(|x| x.id != media_id);
@@ -578,21 +592,43 @@ pub fn missing_bios(st: State<'_, Shared>, id: String) -> Result<Vec<String>, St
 
 // --- App --------------------------------------------------------------------
 
-/// Was `open_path` öffnen darf: https-Links und vorhandene Ordner — nie Dateien,
-/// denn „öffnen“ startet bei .app/.exe/.command ein Programm.
-pub fn open_target_allowed(path: &str) -> bool {
+/// Was `open_path` öffnen darf: https-Links und vorhandene Ordner innerhalb des
+/// Maschinenordners — nie Dateien, denn „öffnen“ startet bei .exe/.command ein
+/// Programm. Unter macOS ist auch ein `.app`-Bundle ein Ordner, deshalb zählt nur,
+/// was im Maschinenordner liegt, und Ordner mit Bundle-Endung werden abgelehnt.
+pub fn open_target_allowed(path: &str, machines_dir: &Path) -> bool {
     if path.starts_with("https://") {
         return !path.chars().any(|c| c.is_whitespace() || c.is_control());
     }
     let p = Path::new(path);
-    p.is_absolute() && p.is_dir()
+    if !p.is_absolute() || !p.is_dir() {
+        return false;
+    }
+    let (Ok(full), Ok(base)) = (std::fs::canonicalize(p), std::fs::canonicalize(machines_dir)) else {
+        return false;
+    };
+    if !full.starts_with(&base) {
+        return false;
+    }
+    // Bundle-Ordner (macOS „öffnen“ = starten) nirgends im Pfad unterhalb des Basisordners
+    !full.strip_prefix(&base).map(|rel| {
+        rel.components().any(|c| {
+            Path::new(c.as_os_str())
+                .extension()
+                .map(|e| {
+                    let e = e.to_string_lossy().to_ascii_lowercase();
+                    matches!(e.as_str(), "app" | "bundle" | "framework" | "plugin" | "prefpane" | "kext" | "workflow" | "action" | "saver" | "appex" | "xpc" | "command" | "tool")
+                })
+                .unwrap_or(false)
+        })
+    }).unwrap_or(true)
 }
 
 #[tauri::command]
-pub fn open_path(app: AppHandle, path: String) -> Result<(), String> {
+pub fn open_path(app: AppHandle, st: State<'_, Shared>, path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    if !open_target_allowed(&path) {
-        return Err("Nur Links (https) und Ordner lassen sich öffnen".into());
+    if !open_target_allowed(&path, &st.machines_dir()) {
+        return Err("Nur Links (https) und Maschinenordner lassen sich öffnen".into());
     }
     // Links (Website, GitHub) und Maschinenordner laufen über dasselbe Kommando.
     if path.starts_with("https://") {
@@ -691,15 +727,30 @@ mod tests {
     #[test]
     fn open_path_allows_only_https_and_folders() {
         let base = tempdir("open");
-        assert!(open_target_allowed("https://lan-solo.com/de/tools/virtual/"));
-        assert!(!open_target_allowed("http://example.com"));
-        assert!(!open_target_allowed("file:///etc/passwd"));
-        assert!(!open_target_allowed("https://x y"));
-        assert!(open_target_allowed(&base.to_string_lossy()));
-        let f = base.join("tool.command");
+        let machines = base.join("machines");
+        let vm = machines.join("win-98");
+        std::fs::create_dir_all(&vm).unwrap();
+        assert!(open_target_allowed("https://lan-solo.com/de/tools/virtual/", &machines));
+        assert!(!open_target_allowed("http://example.com", &machines));
+        assert!(!open_target_allowed("file:///etc/passwd", &machines));
+        assert!(!open_target_allowed("https://x y", &machines));
+        assert!(open_target_allowed(&vm.to_string_lossy(), &machines));
+        assert!(open_target_allowed(&machines.to_string_lossy(), &machines));
+        let f = vm.join("tool.command");
         std::fs::write(&f, "#!/bin/sh\n").unwrap();
-        assert!(!open_target_allowed(&f.to_string_lossy()), "Dateien (ausführbar) nie öffnen");
-        assert!(!open_target_allowed("relative/dir"));
+        assert!(!open_target_allowed(&f.to_string_lossy(), &machines), "Dateien (ausführbar) nie öffnen");
+        assert!(!open_target_allowed("relative/dir", &machines));
+        // Ordner außerhalb des Maschinenordners und .app-Bundles (unter macOS Ordner, „öffnen“ = starten)
+        assert!(!open_target_allowed(&base.to_string_lossy(), &machines));
+        let outside_app = base.join("Evil.app");
+        std::fs::create_dir_all(&outside_app).unwrap();
+        assert!(!open_target_allowed(&outside_app.to_string_lossy(), &machines));
+        let inside_app = vm.join("Evil.app");
+        std::fs::create_dir_all(&inside_app).unwrap();
+        assert!(!open_target_allowed(&inside_app.to_string_lossy(), &machines));
+        // Ausbruch über ..
+        let escape = vm.join("..").join("..").join("Evil.app");
+        assert!(!open_target_allowed(&escape.to_string_lossy(), &machines));
         let _ = std::fs::remove_dir_all(&base);
     }
 }
