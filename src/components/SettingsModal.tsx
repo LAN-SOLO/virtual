@@ -42,12 +42,13 @@ export function SettingsModal({
     api.dataPath().then(setDataPath).catch(() => {});
   }, []);
 
-  const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
-    setS((prev) => {
-      const next = { ...prev, [key]: value };
-      onLive(next);
-      return next;
-    });
+  // Live-Vorschau (Sprache, Theme) außerhalb des State-Updaters melden —
+  // sonst aktualisiert React die App während SettingsModal rendert.
+  const set = <K extends keyof Settings>(key: K, value: Settings[K]) => {
+    const next = { ...s, [key]: value };
+    setS(next);
+    onLive(next);
+  };
 
   const pickDir = async (key: 'machinesDir' | 'qemuDir' | 'coresDir' | 'systemDir') => {
     const sel = await open({ directory: true, multiple: false });

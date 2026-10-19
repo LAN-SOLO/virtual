@@ -119,8 +119,8 @@ const de = {
   hwDisplay: 'Anzeige',
   dispWindow: 'Engine-Fenster',
   dispHeadless: 'ohne Fenster (headless)',
-  dispVnc: 'VNC (127.0.0.1)',
-  hwGl: 'OpenGL-Beschleunigung',
+  dispVnc: 'VNC (127.0.0.1:5900, weitere Maschinen ab 5901)',
+  hwGl: 'OpenGL-Beschleunigung (nicht mit Homebrew-QEMU auf macOS)',
   hwFullscreen: 'Vollbild beim Start',
   hwExtraArgs: 'Zusätzliche Argumente (eins je Zeile)',
   hwExtraArgsHint: '// nested: freie Engine-Argumente — werden unverändert angehängt.',
@@ -156,19 +156,20 @@ const de = {
   netNat: 'NAT — Internet über den Host',
   netNatHint: '// Der Gast kommt raus, von außen kommt nichts rein (außer Weiterleitungen).',
   netBridged: 'Bridged — eigene Adresse im LAN',
-  netBridgedHint: '// Folgt in 0.4 — bis dahin wie NAT.',
+  netBridgedHint: '// Folgt in einer späteren Version — bis dahin wie NAT.',
   forwards: 'Port-Weiterleitungen',
   fwProto: 'Protokoll',
   fwHost: 'Host-Port',
   fwGuest: 'Gast-Port',
   noForwards: 'Keine Weiterleitungen.',
+  fwHint: '// Weiterleitungen lauschen nur auf 127.0.0.1 — der Gast wird nie ins LAN geöffnet.',
   shares: 'Gemeinsame Ordner',
   shareName: 'Name (mount_tag)',
   sharePath: 'Host-Pfad',
   shareRo: 'nur lesen',
   addShare: 'Ordner freigeben',
   noShares: 'Keine gemeinsamen Ordner.',
-  sharesHint: '// virtio-9p für aktuelle Gäste (mount -t 9p <name>). Für alte Gäste über die SMB-Freigabe des NAT-Netzes (erste Freigabe).',
+  sharesHint: '// virtio-9p für Gäste am virtio-Bus (mount -t 9p <name>; nicht unter Windows). Alte Gäste: SMB-Freigabe des Gast-Netzes (erste Freigabe, braucht Samba: brew install samba bzw. apt install samba; nicht unter Windows). Was der Host nicht kann, steht beim Start im Log.',
   netConsoleHint: '// Konsolen laufen offline. Netplay ist deaktiviert.',
 
   // snapshots
@@ -185,6 +186,8 @@ const de = {
   snapKindInternal: 'intern',
   snapKindState: 'Save-State',
   snapKindOverlay: 'Overlay',
+  snapCreated: 'Snapshot erstellt.',
+  snapSaving: 'Sichert …',
 
   // log
   logClear: 'Leeren',
@@ -227,6 +230,10 @@ const de = {
   accentViolet: 'Violett',
   accentAmber: 'Bernstein',
   confirmDangerous: 'Vor Löschen und hartem Stopp nachfragen',
+  confirmQuit: (n: number) =>
+    n === 1
+      ? 'Eine Maschine läuft noch. virtual beenden und sie hart stoppen? Nicht gespeicherte Daten im Gast gehen verloren.'
+      : `${n} Maschinen laufen noch. virtual beenden und alle hart stoppen? Nicht gespeicherte Daten in den Gästen gehen verloren.`,
   nestedToggle: 'Tarif nested aktivieren',
   nestedExplain:
     'nested (12 € im Jahr) bringt die komplette Hardware-Bibliothek, Snapshot-Bäume, Klone, Headless-Betrieb, CLI und freie Engine-Argumente. Im Vorabzugang gibt es keine Lizenzprüfung — einfach umschalten.',
@@ -388,8 +395,8 @@ const en: Dict = {
   hwDisplay: 'Display',
   dispWindow: 'Engine window',
   dispHeadless: 'no window (headless)',
-  dispVnc: 'VNC (127.0.0.1)',
-  hwGl: 'OpenGL acceleration',
+  dispVnc: 'VNC (127.0.0.1:5900, further machines from 5901)',
+  hwGl: 'OpenGL acceleration (not with Homebrew QEMU on macOS)',
   hwFullscreen: 'Fullscreen at start',
   hwExtraArgs: 'Extra arguments (one per line)',
   hwExtraArgsHint: '// nested: free engine arguments — appended verbatim.',
@@ -423,19 +430,20 @@ const en: Dict = {
   netNat: 'NAT — internet via the host',
   netNatHint: '// The guest can get out, nothing gets in (except forwards).',
   netBridged: 'Bridged — own address on the LAN',
-  netBridgedHint: '// Coming in 0.4 — treated like NAT until then.',
+  netBridgedHint: '// Coming in a later version — treated like NAT until then.',
   forwards: 'Port forwards',
   fwProto: 'Protocol',
   fwHost: 'Host port',
   fwGuest: 'Guest port',
   noForwards: 'No forwards.',
+  fwHint: '// Forwards listen on 127.0.0.1 only — the guest is never exposed to the LAN.',
   shares: 'Shared folders',
   shareName: 'Name (mount_tag)',
   sharePath: 'Host path',
   shareRo: 'read-only',
   addShare: 'Share folder',
   noShares: 'No shared folders.',
-  sharesHint: '// virtio-9p for current guests (mount -t 9p <name>). Old guests use the SMB share of the NAT network (first share).',
+  sharesHint: '// virtio-9p for guests on the virtio bus (mount -t 9p <name>; not on Windows). Old guests: SMB share of the guest network (first share, needs Samba: brew install samba or apt install samba; not on Windows). Whatever the host cannot do is noted in the log at start.',
   netConsoleHint: '// Consoles run offline. Netplay is disabled.',
 
   snapshots: 'Snapshots',
@@ -451,6 +459,8 @@ const en: Dict = {
   snapKindInternal: 'internal',
   snapKindState: 'save state',
   snapKindOverlay: 'overlay',
+  snapCreated: 'Snapshot created.',
+  snapSaving: 'Saving …',
 
   logClear: 'Clear',
   logEmpty: 'No output yet.',
@@ -490,6 +500,10 @@ const en: Dict = {
   accentViolet: 'Violet',
   accentAmber: 'Amber',
   confirmDangerous: 'Confirm before deleting and force-stopping',
+  confirmQuit: (n: number) =>
+    n === 1
+      ? 'A machine is still running. Quit virtual and force-stop it? Unsaved data in the guest will be lost.'
+      : `${n} machines are still running. Quit virtual and force-stop them all? Unsaved data in the guests will be lost.`,
   nestedToggle: 'Enable the nested plan',
   nestedExplain:
     'nested (€12 a year) brings the full hardware library, snapshot trees, clones, headless operation, CLI and free engine arguments. There is no license check during early access — just switch it on.',

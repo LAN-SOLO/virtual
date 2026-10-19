@@ -258,6 +258,8 @@ export const api = {
 
   // App
   openPath: (path: string) => call<void>('open_path', { path }),
+  /** Laufende Engines hart beenden und die App schließen (nach Bestätigung). */
+  quitApp: () => call<void>('quit_app'),
   checkUpdate: () => call<UpdateInfo | null>('check_update'),
   installUpdate: () => call<void>('install_update'),
 
@@ -265,6 +267,8 @@ export const api = {
   onStatus: (cb: (e: StatusEvent) => void): Promise<UnlistenFn> =>
     listen<StatusEvent>('machine-status', (ev) => cb(ev.payload)),
   onLog: (cb: (e: LogEvent) => void): Promise<UnlistenFn> => listen<LogEvent>('machine-log', (ev) => cb(ev.payload)),
+  /** Fenster schließen / Beenden, während Maschinen laufen. */
+  onCloseRequested: (cb: () => void): Promise<UnlistenFn> => listen('close-requested', () => cb()),
 };
 
 export const defaultSettings: Settings = {

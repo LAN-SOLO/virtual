@@ -72,6 +72,10 @@ export function MachineDetail({
   const [snapNote, setSnapNote] = useState('');
   const [missingBios, setMissingBios] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
+  // Freitext-Felder halten ihren Rohtext: sonst schluckt das Zerlegen bei jedem
+  // Tastendruck das gerade getippte Komma bzw. die neue Zeile.
+  const [audioText, setAudioText] = useState(machine.devices.audio.join(', '));
+  const [extraText, setExtraText] = useState(machine.extraArgs.join('\n'));
   const logRef = useRef<HTMLPreElement>(null);
 
   const st = status.state;
@@ -79,9 +83,19 @@ export function MachineDetail({
   const isConsole = machine.engine === 'libretro';
 
   // Maschine gewechselt oder von außen aktualisiert → Entwurf verwerfen
+  // Ungespeicherte Hardware-/Netz-Änderungen überleben einen Medienwechsel:
+  // ist der Entwurf geändert, kommen nur Platten und Medien frisch dazu.
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
   useEffect(() => {
+    if (dirtyRef.current) {
+      setDraft((d) => ({ ...d, media: machine.media, disks: machine.disks, updatedAt: machine.updatedAt }));
+      return;
+    }
     setDraft(machine);
     setDirty(false);
+    setAudioText(machine.devices.audio.join(', '));
+    setExtraText(machine.extraArgs.join('\n'));
   }, [machine]);
 
   useEffect(() => {
@@ -143,6 +157,8 @@ export function MachineDetail({
   };
 
   const createSnapshot = () => {
+    if (busy) return;
+    setBusy(true);
     api
       .createSnapshot(machine.id, snapName.trim() || `Snapshot ${snapshots.length + 1}`, snapNote.trim())
       .then((s) => {
@@ -150,8 +166,10 @@ export function MachineDetail({
         setSnapModal(false);
         setSnapName('');
         setSnapNote('');
+        onToast(t.snapCreated);
       })
-      .catch(onFail);
+      .catch(onFail)
+      .finally(() => setBusy(false));
   };
 
   const tabs: [Tab, string][] = [
@@ -397,9 +415,10 @@ export function MachineDetail({
                     <input
                       type="text"
                       list="audio"
-                      value={draft.devices.audio.join(', ')}
+                      value={audioText}
                       disabled={running}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        setAudioText(e.target.value);
                         edit({
                           devices: {
                             ...draft.devices,
@@ -408,8 +427,8 @@ export function MachineDetail({
                               .map((s) => s.trim())
                               .filter(Boolean),
                           },
-                        })
-                      }
+                        });
+                      }}
                     />
                     <datalist id="audio">
                       {AUDIO_OPTIONS.map((c) => (
@@ -547,9 +566,12 @@ export function MachineDetail({
                   <textarea
                     rows={3}
                     className="mono"
-                    value={draft.extraArgs.join('\n')}
+                    value={extraText}
                     disabled={running || !nested}
-                    onChange={(e) => edit({ extraArgs: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) })}
+                    onChange={(e) => {
+                      setExtraText(e.target.value);
+                      edit({ extraArgs: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
+                    }}
                   />
                 </label>
                 <div className="note">{nested ? t.hwExtraArgsHint : t.hwExtraArgsLocked}</div>
@@ -715,6 +737,7 @@ export function MachineDetail({
                     {t.add}
                   </button>
                 </div>
+                <div className="note">{t.fwHint}</div>
                 <div className="sep" />
                 <div className="fieldlabel">{t.shares}</div>
                 {draft.sharedFolders.length === 0 && <div className="note">{t.noShares}</div>}
@@ -856,8 +879,8 @@ export function MachineDetail({
               <button className="ghost" onClick={() => setSnapModal(false)}>
                 {t.cancel}
               </button>
-              <button className="primary" onClick={createSnapshot}>
-                {t.create}
+              <button className="primary" onClick={createSnapshot} disabled={busy}>
+                {busy ? t.snapSaving : t.create}
               </button>
             </div>
           </div>

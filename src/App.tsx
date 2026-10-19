@@ -165,6 +165,40 @@ export default function App() {
     };
   }, [showToast]);
 
+  // Schließen mit laufenden Maschinen: nachfragen statt Gäste kommentarlos hart zu beenden
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  const tRef = useRef(t);
+  tRef.current = t;
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    api
+      .onCloseRequested(async () => {
+        const n = Object.values(statusRef.current).filter((s) => s.state !== 'stopped' && s.state !== 'error').length;
+        if (await onConfirm(tRef.current.confirmQuit(Math.max(1, n)))) api.quitApp().catch(fail);
+      })
+      .then((f) => (off = f))
+      .catch(() => {});
+    return () => off?.();
+  }, [onConfirm, fail]);
+
+  // Zustand laufender Maschinen nachführen (z. B. Pause über das Menü des Engine-Fensters)
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      Object.values(statusRef.current)
+        .filter((s) => s.state === 'running' || s.state === 'paused')
+        .forEach((s) =>
+          api
+            .machineStatus(s.id)
+            .then((fresh) =>
+              setStatus((all) => (all[s.id] && all[s.id].state !== fresh.state && all[s.id].state !== 'stopped' ? { ...all, [s.id]: fresh } : all))
+            )
+            .catch(() => {})
+        );
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // Auswahl: erste Maschine, wenn nichts gewählt
   useEffect(() => {
     if (machines.length === 0) {
