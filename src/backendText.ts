@@ -21,6 +21,7 @@ const RULES: Rule[] = [
   [/^Maschine startet bereits$/, 'The machine is already starting'],
   [/^Maschine läuft nicht$/, 'The machine is not running'],
   [/^Maschine wird gerade gelöscht$/, 'The machine is being deleted'],
+  [/^Maschine wird gerade gespeichert$/, 'The machine is being saved'],
   [/^Für diese Maschine läuft gerade ein Snapshot — bitte warten$/, 'A snapshot is in progress for this machine — please wait'],
   [/^Für diese Maschine wird gerade ein Medium vorbereitet — bitte warten$/, 'A medium is being prepared for this machine — please wait'],
   [/^Medienwechsel im laufenden Betrieb folgt in einer späteren Version — bitte erst stoppen$/, 'Changing media while running comes in a later version — please stop the machine first'],

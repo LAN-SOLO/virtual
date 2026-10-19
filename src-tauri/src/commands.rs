@@ -267,6 +267,9 @@ fn create_machine_blocking(st: &Shared, input: CreateMachineInput) -> Result<Mac
 
 #[tauri::command]
 pub fn save_machine(st: State<'_, Shared>, mut machine: Machine) -> Result<Machine, String> {
+    // Während einer Wandlung/eines Löschens nicht schreiben: Die Wandlung speichert
+    // am Ende ihren (älteren) Stand und hätte die Änderung sonst still überschrieben.
+    let _busy = st.begin(&machine.id, Op::Edit)?;
     if is_running(&st, &machine.id) {
         return Err("Maschine läuft — erst stoppen, dann ändern".into());
     }
@@ -522,6 +525,7 @@ fn attach_media_blocking(st: &Shared, id: &str, kind: MediaKind, path: String, s
 
 #[tauri::command]
 pub fn detach_media(st: State<'_, Shared>, id: String, media_id: String) -> Result<Machine, String> {
+    let _busy = st.begin(&id, Op::Edit)?;
     if is_running(&st, &id) {
         return Err("Medienwechsel im laufenden Betrieb folgt in einer späteren Version — bitte erst stoppen".into());
     }

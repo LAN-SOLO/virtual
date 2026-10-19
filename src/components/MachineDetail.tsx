@@ -74,6 +74,9 @@ export function MachineDetail({
   const [snapNote, setSnapNote] = useState('');
   const [missingBios, setMissingBios] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
+  // Snapshot anlegen/zurückspielen läuft (kann Minuten dauern): „Stopp erzwingen“
+  // bleibt dann bedienbar — das Backend beendet die Engine sofort.
+  const [snapRunning, setSnapRunning] = useState(false);
   // Freitext-Felder halten ihren Rohtext: sonst schluckt das Zerlegen bei jedem
   // Tastendruck das gerade getippte Komma bzw. die neue Zeile.
   const [audioText, setAudioText] = useState(machine.devices.audio.join(', '));
@@ -163,6 +166,7 @@ export function MachineDetail({
   const createSnapshot = () => {
     if (busy) return;
     setBusy(true);
+    setSnapRunning(true);
     api
       .createSnapshot(machine.id, snapName.trim() || `Snapshot ${snapshots.length + 1}`, snapNote.trim())
       .then((s) => {
@@ -173,7 +177,10 @@ export function MachineDetail({
         onToast(t.snapCreated);
       })
       .catch(onFail)
-      .finally(() => setBusy(false));
+      .finally(() => {
+        setBusy(false);
+        setSnapRunning(false);
+      });
   };
 
   const tabs: [Tab, string][] = [
@@ -231,7 +238,7 @@ export function MachineDetail({
         {running && (
           <button
             className="danger"
-            disabled={busy}
+            disabled={busy && !snapRunning}
             onClick={async () => {
               if (await onConfirm(t.confirmForce(machine.name))) run(api.stopMachine(machine.id, true));
             }}
@@ -254,7 +261,7 @@ export function MachineDetail({
         <span className="grow" />
         {dirty && <span className="dim" style={{ fontSize: 11 }}>{t.unsaved}</span>}
         {(tab === 'hardware' || tab === 'network' || tab === 'overview') && (
-          <button className="primary" disabled={!dirty || running} onClick={save} title={running ? t.runningNoEdit : ''}>
+          <button className="primary" disabled={!dirty || running || busy} onClick={save} title={running ? t.runningNoEdit : ''}>
             {t.save}
           </button>
         )}
@@ -611,7 +618,7 @@ export function MachineDetail({
                 <span className="mono grow" title={m.path}>
                   {baseName(m.path)}
                 </span>
-                <button className="icon" disabled={running} title={t.remove} onClick={() => api.detachMedia(machine.id, m.id).then(onMachine).catch(onFail)}>
+                <button className="icon" disabled={running || busy} title={t.remove} onClick={() => api.detachMedia(machine.id, m.id).then(onMachine).catch(onFail)}>
                   <IconTrash size={11} />
                 </button>
               </div>
@@ -817,7 +824,15 @@ export function MachineDetail({
                   onClick={async () => {
                     if (!(await onConfirm(t.confirmRestore(s.name)))) return;
                     setBusy(true);
-                    api.restoreSnapshot(machine.id, s.id).then(() => onToast(t.ok)).catch(onFail).finally(() => setBusy(false));
+                    setSnapRunning(true);
+                    api
+                      .restoreSnapshot(machine.id, s.id)
+                      .then(() => onToast(t.ok))
+                      .catch(onFail)
+                      .finally(() => {
+                        setBusy(false);
+                        setSnapRunning(false);
+                      });
                   }}
                 >
                   {t.restore}

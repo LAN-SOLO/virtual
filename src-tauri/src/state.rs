@@ -24,6 +24,8 @@ pub enum Op {
     Snapshot,
     Media,
     Delete,
+    /// Kurz: Hardware speichern / Medium entfernen (schreibt machine.json)
+    Edit,
 }
 
 /// Belegt die Maschine für einen Vorgang; gibt sie beim Drop wieder frei
@@ -46,6 +48,7 @@ pub fn busy_message(op: Op) -> String {
         Op::Snapshot => "Für diese Maschine läuft gerade ein Snapshot — bitte warten".into(),
         Op::Media => "Für diese Maschine wird gerade ein Medium vorbereitet — bitte warten".into(),
         Op::Delete => "Maschine wird gerade gelöscht".into(),
+        Op::Edit => "Maschine wird gerade gespeichert".into(),
     }
 }
 
@@ -107,5 +110,11 @@ mod tests {
         assert!(st.begin("a", Op::Delete).is_ok(), "nach dem Vorgang wieder frei");
         assert_eq!(st.begin("b", Op::Start).err().expect("belegt"), busy_message(Op::Start));
         drop(other);
+        // Speichern/Entfernen während einer Wandlung: abgelehnt, sonst überschriebe die
+        // Wandlung die Änderung am Ende mit ihrem älteren Stand
+        let conv = st.begin("a", Op::Media).unwrap();
+        assert!(st.begin("a", Op::Edit).err().expect("belegt").contains("Medium"));
+        drop(conv);
+        assert!(st.begin("a", Op::Edit).is_ok());
     }
 }

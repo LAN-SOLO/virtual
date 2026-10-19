@@ -57,6 +57,10 @@ Oberfläche. Neue Fehlermeldungen brauchen dort ein Muster — `pnpm test:ui` li
 Meldungen aus `src-tauri/` und `core/` und schlägt sonst fehl. Profile tragen ihre englischen
 Anzeigetexte im Block `en` (Test: `every_builtin_profile_has_english_texts`).
 
+Vorgänge je Maschine (Start, Snapshot, Medium wandeln, Löschen, Speichern/Medium entfernen)
+belegen die Maschine über `AppState::begin` (`src-tauri/src/state.rs`); ein zweiter Vorgang
+wird abgelehnt. Steuerkommandos warten höchstens 3 s auf QMP, „Stopp erzwingen“ gar nicht.
+
 Der Rust-Kern (`core/`, Crate `virtual-core`) ist Tauri-frei und testbar: Datenmodell,
 Maschinenprofile (`profiles/*.json`, eingebettet), QEMU-Kommandozeile als reine Funktion,
 QMP-Nachrichten, RetroArch-Kommandozeile und -Konfiguration, Engine-Erkennung. Die Kommandos

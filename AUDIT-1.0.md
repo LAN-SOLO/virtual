@@ -283,3 +283,56 @@ aus den anderen Tools prüfen. „Getestet“ heißt ausgeführt; was nur am Ger
 - [ ] Beide: Snapshot einer laufenden Maschine mit 4–8 GB RAM; währenddessen Auswahl wechseln und zurück, Pause drücken (→ „Engine beschäftigt“ nach 3 s), „Stopp erzwingen“ (→ sofort aus).
 - [ ] Beide: Schließen während eines Snapshots einer gestoppten Maschine → eigener Hinweistext.
 - [ ] Beide: englische Oberfläche — Start ohne QEMU zeigt „qemu-system-… not found — …“.
+
+## Runde 2 – Verifikation (unabhängige Zweitprüfung, 2026-10-20)
+
+Geprüft wurde der Diff `716fbc4..369b032` sowie L1–L13 an Stellen, die Runde 2 nicht genannt hatte.
+
+### Nachgemessen (auf dem Stand dieser Prüfung)
+
+- `cargo test --workspace`: core 47/47, App 12/12 (Belegungstest um Op::Edit erweitert); Live-Test `qemu_live` gegen das echte qemu-system-i386 erneut grün.
+- `pnpm test:ui` 4/4 — die Abdeckung wurde zusätzlich mit einer eigenen, breiteren Suche über *alle*
+  deutschen String-Literale in `src-tauri/` und `core/` gegengeprüft: ohne Übersetzung bleiben nur
+  ein Testausgabetext und ein `expect` für eingebettete Profile (beide nie in der Oberfläche).
+- `pnpm build` grün. Windows-Typecheck (`cargo check --target x86_64-pc-windows-msvc --workspace --tests`,
+  gestubbte llvm-rc/MSVC-Header, nichts gelinkt) ohne Warnungen, nach erzwungenem Neu-Check beider Crates.
+- `cargo audit`: nur `zip` 4.6.1 über tauri-plugin-updater (kein semver-kompatibles Update, `cargo update -p zip`
+  ändert nichts) plus Unmaintained-Warnungen.
+- Headless Chromium mit gemockter IPC (Dialog-Plugin-2.7-Verhalten, `window.confirm` liefert ein Promise):
+  17 Abläufe × 4 Konfigurationen (DE/EN × dunkel/hell × Windows/macOS) bei 960×600 — 68/68 grün,
+  keine Konsolenfehler, kein Überlauf, keine falsche Sprache. Die zwei neuen Abläufe schlagen auf dem
+  Stand vor dieser Prüfung nachweislich fehl.
+
+### Gefunden und behoben
+
+1. **Verlorene Änderung während einer Wandlung (L9).** `save_machine` und `detach_media` belegten die
+   Maschine nicht. Wurde während einer minutenlangen NRG/BIN-Wandlung die Hardware gespeichert oder ein
+   anderes Medium entfernt, schrieb die Wandlung am Ende ihren vorher geladenen Stand zurück — die
+   Änderung war still weg (die Oberfläche hatte „Gespeichert“ gemeldet), ebenso konnte `machine.json`
+   in einen gerade gelöschten Ordner geschrieben werden. Beide Kommandos belegen jetzt kurz (`Op::Edit`)
+   und werden während eines Vorgangs mit Hinweis abgelehnt; in der Oberfläche sind „Speichern“ und
+   „Entfernen“ währenddessen gesperrt. Neue Meldung „Maschine wird gerade gespeichert“ mit Übersetzung.
+2. **„Stopp erzwingen“ war während eines Snapshots gesperrt (L9/L12).** Das Backend beendet die Engine
+   seit Runde 2 sofort, der Knopf war aber an denselben `busy`-Zustand gebunden wie der Snapshot — er
+   ließ sich nur nach Wechsel der Auswahl erreichen, entgegen Handbuch. Er bleibt jetzt beim Anlegen und
+   Zurückspielen eines Snapshots bedienbar (mit Nachfrage); Pause/Stopp bleiben gesperrt.
+
+Handbuch (DE/EN, Abschnitt Version 1.0) und README sind ergänzt.
+
+### Bestätigt (Stichproben über die Angaben von Runde 2 hinaus)
+
+- L1: kein `window.confirm/alert/prompt` im Code; Capability nur `core:default` + `dialog:allow-open`.
+- L3: Rust-Standard über `sys-locale`, Oberfläche fällt ohne Einstellungen auf `navigator.language` zurück.
+- L5: `slugify` liefert nur `[a-z0-9-]`, reservierte Namen → `-vm`; CUE-`FILE` wird nur gelesen.
+- L9: Doppelstart — `start_machine_inner` prüft unter der Belegung erneut, die Laufzeit-Map verwirft
+  einen zweiten Prozess; Löschen prüft „läuft“ erst unter der Belegung.
+- L10: Zeitstempel UTC mit `Z`, Anzeige über `toLocaleString`.
+- L13: Version 1.0.0, https-Endpoint, Pubkey; Signaturprüfung im Plugin beim Download, vor dem Beenden der Engines.
+
+### Weiterhin offen
+
+- Alles aus „Weiterhin offen“ und „Nur am Gerät prüfbar“ von Runde 2 gilt unverändert; zusätzlich am Gerät:
+  - [ ] Beide: Snapshot einer laufenden Maschine mit viel RAM, Dialog schließen, „Stopp erzwingen“ in derselben Ansicht → Engine sofort aus, Snapshot-Fehler wird angezeigt.
+  - [ ] Beide: große NRG einlegen, während der Wandlung Hardware-Tab öffnen → „Speichern“ und „Entfernen“ gesperrt; nach Abschluss wieder frei.
+- Ein Update mit laufendem `qemu-img`-Snapshot einer gestoppten Maschine fragt nicht nach (nur laufende
+  Maschinen werden gezählt); der Windows-Installer beendet virtual, `qemu-img` läuft weiter — wie beim Beenden.
