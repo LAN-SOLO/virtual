@@ -37,6 +37,17 @@ fn now_iso() -> String {
     engine::now_iso()
 }
 
+/// Blockierende Arbeit (Prozesse, QMP, Dateien) vom Hauptthread fernhalten —
+/// synchrone Tauri-Kommandos laufen sonst im UI-Thread und frieren das Fenster ein.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
+}
+
+/// Laufende Engine ohne gehaltene Sperre (Arc-Klon).
+fn running_of(st: &Shared, id: &str) -> Option<Arc<Running>> {
+    st.runtime.lock().unwrap().get(id).cloned()
+}
+
 /// Maschine samt Ordner laden.
 fn load(st: &Shared, id: &str) -> Result<(PathBuf, Machine), String> {
     let base = st.machines_dir();
@@ -96,16 +107,52 @@ fn prepare_cd_image(dir: &Path, path: &str) -> Result<String, String> {
     if analysis.layout.is_none() {
         return Ok(path.to_string());
     }
-    let dst = dir.join(image::iso_name_for(src));
-    let reuse = dst.is_file()
-        && match (dst.metadata().and_then(|m| m.modified()), src.metadata().and_then(|m| m.modified())) {
-            (Ok(d), Ok(s)) => d >= s,
-            _ => false,
-        };
-    if !reuse {
+    let dst = converted_target(dir, src);
+    if !converted_is_current(&dst, src) {
         image::write_iso(&analysis, &dst)?;
+        let _ = std::fs::write(source_marker(&dst), source_fingerprint(src));
     }
     Ok(dst.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string()))
+}
+
+/// Merkzettel neben der gewandelten ISO: aus welcher Quelle sie stammt.
+fn source_marker(iso: &Path) -> PathBuf {
+    iso.with_extension("iso.source")
+}
+
+/// Quelle eindeutig beschreiben: Pfad, Größe, Änderungszeit.
+fn source_fingerprint(src: &Path) -> String {
+    let abs = std::fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf());
+    let meta = std::fs::metadata(src).ok();
+    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let mtime = meta
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{}\n{size}\n{mtime}\n", abs.to_string_lossy())
+}
+
+/// Vorhandene Wandlung nur wiederverwenden, wenn sie aus genau dieser Quelle stammt.
+fn converted_is_current(iso: &Path, src: &Path) -> bool {
+    iso.is_file() && std::fs::read_to_string(source_marker(iso)).map(|m| m == source_fingerprint(src)).unwrap_or(false)
+}
+
+/// Zielname `<stem>.iso`; belegt eine fremde Quelle den Namen, `<stem>-2.iso` usw.
+/// (zwei CDs mit gleichem Dateinamen aus verschiedenen Ordnern überschreiben sich nicht).
+fn converted_target(dir: &Path, src: &Path) -> PathBuf {
+    let first = dir.join(image::iso_name_for(src));
+    if !first.exists() || converted_is_current(&first, src) {
+        return first;
+    }
+    let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "image".into());
+    for n in 2.. {
+        let cand = dir.join(format!("{stem}-{n}.iso"));
+        if !cand.exists() || converted_is_current(&cand, src) {
+            return cand;
+        }
+    }
+    unreachable!()
 }
 
 // --- Einstellungen ----------------------------------------------------------
@@ -182,7 +229,7 @@ fn create_machine_blocking(st: &Shared, input: CreateMachineInput) -> Result<Mac
         let path = dir.join(&disk.path);
         let args = virtual_core::argv::qemu_img_create(&path, &disk.format, disk.size_gb);
         let bin = detect::qemu_img_path(&settings).ok_or("qemu-img nicht gefunden")?;
-        let out = std::process::Command::new(bin).args(&args).output().map_err(|e| format!("qemu-img: {e}"))?;
+        let out = engine::command(bin).args(&args).output().map_err(|e| format!("qemu-img: {e}"))?;
         if !out.status.success() {
             let _ = store::delete(&dir, true);
             return Err(format!("Platte anlegen fehlgeschlagen: {}", String::from_utf8_lossy(&out.stderr).trim()));
@@ -222,6 +269,20 @@ pub fn save_machine(st: State<'_, Shared>, mut machine: Machine) -> Result<Machi
     // Unveränderliches bleibt erhalten; der Ordner wird nie umbenannt.
     machine.created_at = old.created_at;
     machine.profile_id = if machine.profile_id.is_empty() { old.profile_id } else { machine.profile_id };
+    // Platten und Medien verwalten eigene Kommandos (attach/detach) — ein älterer Entwurf
+    // aus der Oberfläche darf sie nicht zurückdrehen; ebenso den Save-State-Slot.
+    machine.disks = old.disks;
+    machine.media = old.media;
+    machine.engine = old.engine;
+    if let (Some(new), Some(prev)) = (machine.libretro.as_mut(), old.libretro.as_ref()) {
+        new.state_slot = prev.state_slot;
+    }
+    if machine.name.trim().is_empty() {
+        machine.name = old.name;
+    }
+    machine.cpu.cores = machine.cpu.cores.clamp(1, 64);
+    machine.cpu.clock_percent = machine.cpu.clock_percent.clamp(10, 100);
+    machine.memory_mb = machine.memory_mb.max(1);
     machine.updated_at = now_iso();
     store::save_machine(&dir, &machine)?;
     Ok(machine)
@@ -237,102 +298,140 @@ pub fn delete_machine(st: State<'_, Shared>, id: String, delete_files: bool) -> 
 }
 
 #[tauri::command]
-pub fn preview_command(st: State<'_, Shared>, id: String) -> Result<String, String> {
-    let (dir, m) = load(&st, &id)?;
-    let settings = st.settings_clone();
-    match m.engine {
-        Engine::Qemu => qemu::preview(&m, &dir, &settings),
-        Engine::Libretro => lr::preview(&m, &dir, &settings),
-    }
+pub async fn preview_command(st: State<'_, Shared>, id: String) -> Result<String, String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        let (dir, m) = load(&st, &id)?;
+        let settings = st.settings_clone();
+        match m.engine {
+            Engine::Qemu => qemu::preview(&m, &dir, &settings),
+            Engine::Libretro => lr::preview(&m, &dir, &settings),
+        }
+    })
+    .await
 }
 
 // --- Laufzeit ---------------------------------------------------------------
 
 fn status_of(st: &Shared, id: &str) -> MachineStatus {
-    let rt = st.runtime.lock().unwrap();
-    match rt.get(id) {
+    match running_of(st, id) {
         Some(r) => r.status(id),
         None => engine::stopped_status(id),
     }
 }
 
 #[tauri::command]
-pub fn start_machine(app: AppHandle, st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
-    if is_running(&st, &id) {
+pub async fn start_machine(app: AppHandle, st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
+    let st = st.inner().clone();
+    blocking(move || start_machine_blocking(&app, &st, &id)).await
+}
+
+fn start_machine_blocking(app: &AppHandle, shared: &Shared, id: &str) -> Result<MachineStatus, String> {
+    if is_running(shared, id) {
         return Err("Maschine läuft bereits".into());
     }
-    let (dir, m) = load(&st, &id)?;
-    let shared: Shared = st.inner().clone();
+    let (dir, mut m) = load(shared, id)?;
     let running: Running = match m.engine {
-        Engine::Qemu => qemu::start(&app, &shared, &m, &dir)?,
-        Engine::Libretro => lr::start(&app, &shared, &m, &dir)?,
+        Engine::Qemu => qemu::start(app, shared, &m, &dir)?,
+        Engine::Libretro => lr::start(app, shared, &m, &dir)?,
     };
-    let status = running.status(&id);
-    shared.runtime.lock().unwrap().insert(id.clone(), running);
-    engine::spawn_waiter(&app, shared.clone(), &id);
+    let status = running.status(id);
+    {
+        let mut rt = shared.runtime.lock().unwrap();
+        if rt.contains_key(id) {
+            // Doppelklick: zweiter Start verliert, sein Prozess wird beendet
+            running.kill();
+            return Err("Maschine läuft bereits".into());
+        }
+        rt.insert(id.to_string(), Arc::new(running));
+    }
+    // RetroArch beginnt jeden Start in Slot 0 (retroarch.cfg) — Zählung angleichen
+    if let Some(cfg) = m.libretro.as_mut() {
+        if cfg.state_slot != 0 {
+            cfg.state_slot = 0;
+            let _ = store::save_machine(&dir, &m);
+        }
+    }
+    engine::spawn_waiter(app, shared.clone(), id);
     Ok(status)
 }
 
 fn with_running<T>(st: &Shared, id: &str, f: impl FnOnce(&Running, Engine) -> Result<T, String>) -> Result<T, String> {
     let (_, m) = load(st, id)?;
-    let rt = st.runtime.lock().unwrap();
-    let r = rt.get(id).ok_or("Maschine läuft nicht")?;
-    f(r, m.engine)
+    let r = running_of(st, id).ok_or("Maschine läuft nicht")?;
+    f(&r, m.engine)
 }
 
 #[tauri::command]
-pub fn stop_machine(st: State<'_, Shared>, id: String, force: bool) -> Result<MachineStatus, String> {
-    with_running(&st, &id, |r, engine| match engine {
-        Engine::Qemu => qemu::stop(r, force),
-        Engine::Libretro => lr::stop(r, force),
-    })?;
-    Ok(status_of(&st, &id))
+pub async fn stop_machine(st: State<'_, Shared>, id: String, force: bool) -> Result<MachineStatus, String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        with_running(&st, &id, |r, engine| match engine {
+            Engine::Qemu => qemu::stop(r, force),
+            Engine::Libretro => lr::stop(r, force),
+        })?;
+        Ok(status_of(&st, &id))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn pause_machine(app: AppHandle, st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
-    with_running(&st, &id, |r, engine| match engine {
-        Engine::Qemu => qemu::pause(r),
-        Engine::Libretro => lr::pause(r),
-    })?;
-    engine::emit_status(&app, &id, "paused", None);
-    Ok(status_of(&st, &id))
+pub async fn pause_machine(app: AppHandle, st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        with_running(&st, &id, |r, engine| match engine {
+            Engine::Qemu => qemu::pause(r),
+            Engine::Libretro => lr::pause(r),
+        })?;
+        engine::emit_status(&app, &id, "paused", None);
+        Ok(status_of(&st, &id))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn resume_machine(app: AppHandle, st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
-    with_running(&st, &id, |r, engine| match engine {
-        Engine::Qemu => qemu::resume(r),
-        Engine::Libretro => lr::resume(r),
-    })?;
-    engine::emit_status(&app, &id, "running", None);
-    Ok(status_of(&st, &id))
+pub async fn resume_machine(app: AppHandle, st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        with_running(&st, &id, |r, engine| match engine {
+            Engine::Qemu => qemu::resume(r),
+            Engine::Libretro => lr::resume(r),
+        })?;
+        engine::emit_status(&app, &id, "running", None);
+        Ok(status_of(&st, &id))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn reset_machine(st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
-    with_running(&st, &id, |r, engine| match engine {
-        Engine::Qemu => qemu::reset(r),
-        Engine::Libretro => lr::reset(r),
-    })?;
-    Ok(status_of(&st, &id))
+pub async fn reset_machine(st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        with_running(&st, &id, |r, engine| match engine {
+            Engine::Qemu => qemu::reset(r),
+            Engine::Libretro => lr::reset(r),
+        })?;
+        Ok(status_of(&st, &id))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn machine_status(st: State<'_, Shared>, id: String) -> MachineStatus {
-    // Zustand bei Bedarf frisch von der Engine holen
-    if let Ok((_, m)) = load(&st, &id) {
-        let rt = st.runtime.lock().unwrap();
-        if let Some(r) = rt.get(&id) {
+pub async fn machine_status(st: State<'_, Shared>, id: String) -> Result<MachineStatus, String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        // Zustand frisch von der Engine holen (z. B. Pause aus dem QEMU-Fenstermenü)
+        if let (Ok((_, m)), Some(r)) = (load(&st, &id), running_of(&st, &id)) {
             if r.state() != "starting" {
                 match m.engine {
-                    Engine::Qemu => qemu::refresh(r),
-                    Engine::Libretro => lr::refresh(r),
+                    Engine::Qemu => qemu::refresh(&r),
+                    Engine::Libretro => lr::refresh(&r),
                 }
             }
         }
-    }
-    status_of(&st, &id)
+        Ok(status_of(&st, &id))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -343,11 +442,9 @@ pub fn all_status(st: State<'_, Shared>) -> Vec<MachineStatus> {
 
 #[tauri::command]
 pub fn machine_log(st: State<'_, Shared>, id: String) -> Vec<String> {
-    let rt = st.runtime.lock().unwrap();
-    if let Some(r) = rt.get(&id) {
+    if let Some(r) = running_of(&st, &id) {
         return r.log_lines();
     }
-    drop(rt);
     // Gestoppt: letzte Zeilen aus log.txt
     load(&st, &id)
         .ok()
@@ -405,19 +502,22 @@ pub fn list_snapshots(st: State<'_, Shared>, id: String) -> Result<Vec<Snapshot>
 }
 
 #[tauri::command]
-pub fn create_snapshot(st: State<'_, Shared>, id: String, name: String, note: String) -> Result<Snapshot, String> {
-    let (dir, mut m) = load(&st, &id)?;
-    let settings = st.settings_clone();
-    let rt = st.runtime.lock().unwrap();
-    let running = rt.get(&id);
-    match m.engine {
-        Engine::Qemu => qemu::create_snapshot(&m, &dir, running, &settings, &name, &note),
-        Engine::Libretro => {
-            let snap = lr::create_snapshot(&mut m, &dir, running, &name, &note)?;
-            store::save_machine(&dir, &m)?;
-            Ok(snap)
+pub async fn create_snapshot(st: State<'_, Shared>, id: String, name: String, note: String) -> Result<Snapshot, String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        let (dir, mut m) = load(&st, &id)?;
+        let settings = st.settings_clone();
+        let running = running_of(&st, &id);
+        match m.engine {
+            Engine::Qemu => qemu::create_snapshot(&m, &dir, running.as_deref(), &settings, &name, &note),
+            Engine::Libretro => {
+                let snap = lr::create_snapshot(&mut m, &dir, running.as_deref(), &name, &note)?;
+                store::save_machine(&dir, &m)?;
+                Ok(snap)
+            }
         }
-    }
+    })
+    .await
 }
 
 fn find_snapshot(dir: &Path, snapshot_id: &str) -> Result<Snapshot, String> {
@@ -428,39 +528,46 @@ fn find_snapshot(dir: &Path, snapshot_id: &str) -> Result<Snapshot, String> {
 }
 
 #[tauri::command]
-pub fn restore_snapshot(st: State<'_, Shared>, id: String, snapshot_id: String) -> Result<(), String> {
-    let (dir, mut m) = load(&st, &id)?;
-    let snap = find_snapshot(&dir, &snapshot_id)?;
-    let settings = st.settings_clone();
-    let rt = st.runtime.lock().unwrap();
-    let running = rt.get(&id);
-    match m.engine {
-        Engine::Qemu => qemu::restore_snapshot(&m, &dir, running, &settings, &snap),
-        Engine::Libretro => {
-            lr::restore_snapshot(&mut m, running, &snap)?;
-            store::save_machine(&dir, &m)
+pub async fn restore_snapshot(st: State<'_, Shared>, id: String, snapshot_id: String) -> Result<(), String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        let (dir, mut m) = load(&st, &id)?;
+        let snap = find_snapshot(&dir, &snapshot_id)?;
+        let settings = st.settings_clone();
+        let running = running_of(&st, &id);
+        match m.engine {
+            Engine::Qemu => qemu::restore_snapshot(&m, &dir, running.as_deref(), &settings, &snap),
+            Engine::Libretro => {
+                lr::restore_snapshot(&mut m, running.as_deref(), &snap)?;
+                store::save_machine(&dir, &m)
+            }
         }
-    }
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn delete_snapshot(st: State<'_, Shared>, id: String, snapshot_id: String) -> Result<(), String> {
-    let (dir, m) = load(&st, &id)?;
-    let snap = find_snapshot(&dir, &snapshot_id)?;
-    let settings = st.settings_clone();
-    let rt = st.runtime.lock().unwrap();
-    let running = rt.get(&id);
-    match m.engine {
-        Engine::Qemu => qemu::delete_snapshot(&m, &dir, running, &settings, &snap),
-        Engine::Libretro => lr::delete_snapshot(&m, &dir, &snap),
-    }
+pub async fn delete_snapshot(st: State<'_, Shared>, id: String, snapshot_id: String) -> Result<(), String> {
+    let st = st.inner().clone();
+    blocking(move || {
+        let (dir, m) = load(&st, &id)?;
+        let snap = find_snapshot(&dir, &snapshot_id)?;
+        let settings = st.settings_clone();
+        let running = running_of(&st, &id);
+        match m.engine {
+            Engine::Qemu => qemu::delete_snapshot(&m, &dir, running.as_deref(), &settings, &snap),
+            Engine::Libretro => lr::delete_snapshot(&m, &dir, &snap),
+        }
+    })
+    .await
 }
 
 // --- Engines ----------------------------------------------------------------
 
 #[tauri::command]
-pub fn detect_engines(st: State<'_, Shared>) -> Vec<EngineInfo> {
-    detect::detect_all(&st.settings_clone())
+pub async fn detect_engines(st: State<'_, Shared>) -> Result<Vec<EngineInfo>, String> {
+    let settings = st.settings_clone();
+    blocking(move || Ok(detect::detect_all(&settings))).await
 }
 
 #[tauri::command]
@@ -471,15 +578,37 @@ pub fn missing_bios(st: State<'_, Shared>, id: String) -> Result<Vec<String>, St
 
 // --- App --------------------------------------------------------------------
 
+/// Was `open_path` öffnen darf: https-Links und vorhandene Ordner — nie Dateien,
+/// denn „öffnen“ startet bei .app/.exe/.command ein Programm.
+pub fn open_target_allowed(path: &str) -> bool {
+    if path.starts_with("https://") {
+        return !path.chars().any(|c| c.is_whitespace() || c.is_control());
+    }
+    let p = Path::new(path);
+    p.is_absolute() && p.is_dir()
+}
+
 #[tauri::command]
 pub fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    // Links (Website, GitHub) und lokale Ordner laufen über dasselbe Kommando.
-    if path.starts_with("http://") || path.starts_with("https://") {
+    if !open_target_allowed(&path) {
+        return Err("Nur Links (https) und Ordner lassen sich öffnen".into());
+    }
+    // Links (Website, GitHub) und Maschinenordner laufen über dasselbe Kommando.
+    if path.starts_with("https://") {
         app.opener().open_url(path, None::<&str>).map_err(|e| e.to_string())
     } else {
         app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
     }
+}
+
+/// Beenden nach Bestätigung in der Oberfläche: laufende Engines hart stoppen.
+#[tauri::command]
+pub fn quit_app(app: AppHandle, st: State<'_, Shared>) {
+    for (_, r) in st.runtime.lock().unwrap().drain() {
+        r.kill();
+    }
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -511,4 +640,66 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("Update fehlgeschlagen: {e}"))?;
     app.restart();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tempdir(name: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("virtual-cmd-test-{}-{name}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    /// 20 ISO-Sektoren als rohe Mode-1-Sektoren (2352 Byte) — wird gewandelt.
+    fn raw_bin(tag: u8) -> Vec<u8> {
+        let mut iso = vec![tag; 20 * 2048];
+        iso[16 * 2048] = 1;
+        iso[16 * 2048 + 1..16 * 2048 + 6].copy_from_slice(b"CD001");
+        let mut out = Vec::new();
+        for chunk in iso.chunks(2048) {
+            out.extend_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0, 2, 0, 1]);
+            out.extend_from_slice(chunk);
+            out.resize(out.len() + 288, 0);
+        }
+        out
+    }
+
+    #[test]
+    fn same_named_images_from_different_folders_do_not_collide() {
+        let base = tempdir("collide");
+        let vm = base.join("vm");
+        std::fs::create_dir_all(&vm).unwrap();
+        for (d, tag) in [("cd1", 0x11u8), ("cd2", 0x22u8)] {
+            std::fs::create_dir_all(base.join(d)).unwrap();
+            std::fs::write(base.join(d).join("disc.bin"), raw_bin(tag)).unwrap();
+        }
+        let a = prepare_cd_image(&vm, &base.join("cd1/disc.bin").to_string_lossy()).unwrap();
+        let b = prepare_cd_image(&vm, &base.join("cd2/disc.bin").to_string_lossy()).unwrap();
+        assert_eq!(a, "disc.iso");
+        assert_eq!(b, "disc-2.iso");
+        assert_eq!(std::fs::read(vm.join(&a)).unwrap()[0], 0x11);
+        assert_eq!(std::fs::read(vm.join(&b)).unwrap()[0], 0x22);
+        // erneutes Einlegen derselben Quelle nutzt die vorhandene Wandlung
+        assert_eq!(prepare_cd_image(&vm, &base.join("cd1/disc.bin").to_string_lossy()).unwrap(), "disc.iso");
+        assert!(!vm.join("disc-3.iso").exists());
+        // reine ISO bleibt, wo sie ist
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn open_path_allows_only_https_and_folders() {
+        let base = tempdir("open");
+        assert!(open_target_allowed("https://lan-solo.com/de/tools/virtual/"));
+        assert!(!open_target_allowed("http://example.com"));
+        assert!(!open_target_allowed("file:///etc/passwd"));
+        assert!(!open_target_allowed("https://x y"));
+        assert!(open_target_allowed(&base.to_string_lossy()));
+        let f = base.join("tool.command");
+        std::fs::write(&f, "#!/bin/sh\n").unwrap();
+        assert!(!open_target_allowed(&f.to_string_lossy()), "Dateien (ausführbar) nie öffnen");
+        assert!(!open_target_allowed("relative/dir"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

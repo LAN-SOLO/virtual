@@ -44,7 +44,9 @@ pub fn slugify(name: &str) -> String {
             None => {}
         }
     }
-    let trimmed = out.trim_end_matches('-').to_string();
+    // Kurz halten: Ordnerpfade landen in Socket-Pfaden und Windows-MAX_PATH
+    let capped: String = out.chars().take(40).collect();
+    let trimmed = capped.trim_end_matches('-').to_string();
     if trimmed.is_empty() {
         "maschine".into()
     } else {
@@ -148,6 +150,8 @@ mod tests {
         assert_eq!(slugify("Windows 98 SE"), "windows-98-se");
         assert_eq!(slugify("Äpfel & Öl"), "apfel-ol");
         assert_eq!(slugify("***"), "maschine");
+        assert_eq!(slugify(&"a".repeat(100)).len(), 40);
+        assert_eq!(slugify("C:\\Windows\\..\\x"), "c-windows-x", "keine Pfadtrenner im Ordnernamen");
     }
 
     #[test]

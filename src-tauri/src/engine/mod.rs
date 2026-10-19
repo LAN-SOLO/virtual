@@ -52,7 +52,8 @@ pub struct Running {
     pub control: Control,
     /// Hilfsprozesse (swtpm), werden mit der Maschine beendet.
     pub helpers: Arc<Mutex<Vec<Child>>>,
-    pub dir: PathBuf,
+    /// Sockets, die nach dem Ende aufgeräumt werden (QMP, swtpm).
+    pub sockets: Vec<PathBuf>,
 }
 
 impl Running {
@@ -130,6 +131,35 @@ pub fn spawn_log_readers(app: &AppHandle, id: &str, dir: &Path, child: &mut Chil
     }
 }
 
+/// `Command` ohne Konsolenfenster: Unter Windows öffnet jeder Konsolen-Prozess
+/// (qemu-system, qemu-img, `--version`-Abfragen) aus einer GUI-App sonst ein
+/// eigenes schwarzes Fenster.
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut c = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
+    c
+}
+
+/// Kurzer Pfad für einen Unix-Socket: `sun_path` fasst unter macOS nur 104 Byte.
+/// Liegt der Maschinenordner tief (langer Name, eigener Ordner), wandert der
+/// Socket in den Temp-Ordner — eindeutig je Maschine.
+pub fn socket_path(dir: &Path, file: &str, id: &str) -> PathBuf {
+    let p = dir.join(file);
+    if p.as_os_str().len() <= 100 {
+        return p;
+    }
+    let short: String = id.chars().filter(|c| c.is_ascii_alphanumeric()).take(12).collect();
+    // Benutzereigener Ordner (macOS: /var/folders/…/T, Linux: $XDG_RUNTIME_DIR), nicht das geteilte /tmp
+    let base = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|p| p.is_dir()).unwrap_or_else(std::env::temp_dir);
+    base.join(format!("virtual-{short}-{}", file.replace(['/', '\\'], "-")))
+}
+
 /// Wartet auf das Prozessende und meldet `stopped` bzw. `error`
 /// (Abbruch mit Fehlercode in den ersten drei Sekunden = Startfehler).
 pub fn spawn_waiter(app: &AppHandle, st: Arc<crate::state::AppState>, id: &str) {
@@ -154,8 +184,10 @@ pub fn spawn_waiter(app: &AppHandle, st: Arc<crate::state::AppState>, id: &str) 
                 for h in r.helpers.lock().unwrap().iter_mut() {
                     let _ = h.kill();
                 }
-                // Socket-Reste des QMP-Endpunkts aufräumen
-                let _ = std::fs::remove_file(r.dir.join("qmp.sock"));
+                // Socket-Reste (QMP, swtpm) aufräumen
+                for s in &r.sockets {
+                    let _ = std::fs::remove_file(s);
+                }
                 let failed = !status.success() && secs < 3.0;
                 let err = if failed {
                     let tail: Vec<String> = r.log_lines().into_iter().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect();
@@ -189,6 +221,21 @@ pub fn short_id() -> String {
 
 pub fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_socket_paths_stay_and_long_ones_move() {
+        let short = Path::new("/vm/a");
+        assert_eq!(socket_path(short, "qmp.sock", "abc"), short.join("qmp.sock"));
+        let long = PathBuf::from(format!("/Users/x/Library/Application Support/com.lan-solo.virtual/machines/{}", "a".repeat(60)));
+        let p = socket_path(&long, "qmp.sock", "1234-5678-9abc-def0");
+        assert!(p.as_os_str().len() <= 104, "{}", p.display());
+        assert!(p.to_string_lossy().ends_with("virtual-123456789abc-qmp.sock"));
+    }
 }
 
 pub fn set_paused_flag(flag: &Arc<AtomicBool>, v: bool) {

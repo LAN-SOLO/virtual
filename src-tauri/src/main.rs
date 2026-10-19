@@ -11,7 +11,7 @@ mod store;
 use state::AppState;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Alle laufenden Engines hart beenden (App-Ende).
 fn stop_all(st: &Arc<AppState>) {
@@ -19,6 +19,12 @@ fn stop_all(st: &Arc<AppState>) {
     for (_, r) in rt.drain() {
         r.kill();
     }
+}
+
+fn any_running(app: &tauri::AppHandle) -> bool {
+    app.try_state::<Arc<AppState>>()
+        .map(|st| !st.runtime.lock().unwrap().is_empty())
+        .unwrap_or(false)
 }
 
 fn main() {
@@ -71,14 +77,31 @@ fn main() {
             commands::open_path,
             commands::check_update,
             commands::install_update,
+            commands::quit_app,
         ])
+        // Schließen mit laufenden Maschinen: erst nachfragen (die Oberfläche zeigt den
+        // Dialog und ruft `quit_app`), statt Gäste kommentarlos hart zu beenden.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if any_running(window.app_handle()) {
+                    api.prevent_close();
+                    let _ = window.emit("close-requested", ());
+                }
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building virtual")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            // Cmd+Q / Menü „Beenden“: wie Fenster schließen; `quit_app` beendet mit Code 0
+            tauri::RunEvent::ExitRequested { api, code: None, .. } if any_running(app) => {
+                api.prevent_exit();
+                let _ = app.emit("close-requested", ());
+            }
+            tauri::RunEvent::Exit => {
                 if let Some(st) = app.try_state::<Arc<AppState>>() {
                     stop_all(&st);
                 }
             }
+            _ => {}
         });
 }

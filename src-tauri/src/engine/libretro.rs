@@ -2,14 +2,14 @@
 //! Maschine schreiben, Prozess starten, über das UDP-Kommando-Interface steuern.
 //! Save States sind hier die Snapshots (ein Slot je Snapshot).
 
-use super::{emit_status, free_port, now_iso, set_paused_flag, spawn_log_readers, Control, Running};
+use super::{command, emit_status, free_port, now_iso, set_paused_flag, spawn_log_readers, Control, Running};
 use crate::detect;
 use crate::settings::Settings;
 use crate::state::AppState;
 use std::collections::VecDeque;
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -84,7 +84,7 @@ pub fn start(app: &AppHandle, st: &Arc<AppState>, m: &Machine, dir: &Path) -> Re
     let log = Arc::new(Mutex::new(VecDeque::new()));
     super::push_log(app, &m.id, dir, &log, format!("$ {}", virtual_core::argv::render(&bin.to_string_lossy(), &args)));
 
-    let mut child = Command::new(&bin)
+    let mut child = command(&bin)
         .args(&args)
         .current_dir(dir)
         .stdin(Stdio::null())
@@ -106,7 +106,7 @@ pub fn start(app: &AppHandle, st: &Arc<AppState>, m: &Machine, dir: &Path) -> Re
         log,
         control: Control::Libretro { port, paused: Arc::new(AtomicBool::new(false)) },
         helpers: Arc::new(Mutex::new(Vec::new())),
-        dir: dir.to_path_buf(),
+        sockets: Vec::new(),
     };
     emit_status(app, &m.id, "running", None);
     Ok(running)
@@ -210,10 +210,23 @@ pub fn create_snapshot(m: &mut Machine, dir: &Path, running: Option<&Running>, n
     let mut snaps = crate::store::load_snapshots(dir);
     let slot = snaps.iter().filter_map(|s| s.tag.parse::<u32>().ok()).max().map(|x| x + 1).unwrap_or(0);
     goto_slot(port, m, slot)?;
+    let file = state_file(m, dir, slot);
+    let before = file.as_ref().and_then(|f| f.metadata().and_then(|x| x.modified()).ok());
     send_cmd(port, cmd::SAVE_STATE)?;
-    std::thread::sleep(Duration::from_millis(400));
-    if let Some(f) = state_file(m, dir, slot) {
-        if !f.exists() {
+    if let Some(f) = &file {
+        // RetroArch schreibt asynchron; große Konsolen (N64, PSP) brauchen länger als 400 ms
+        let t0 = Instant::now();
+        let written = loop {
+            std::thread::sleep(Duration::from_millis(150));
+            let now = f.metadata().and_then(|x| x.modified()).ok();
+            if now.is_some() && now != before {
+                break true;
+            }
+            if t0.elapsed() > Duration::from_secs(5) {
+                break false;
+            }
+        };
+        if !written {
             return Err(format!("Save State wurde nicht geschrieben ({}) — läuft ein Spiel?", f.to_string_lossy()));
         }
     }

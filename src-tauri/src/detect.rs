@@ -4,7 +4,6 @@
 
 use crate::settings::Settings;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use virtual_core::detect::{self as d, HostOs};
 use virtual_core::{Arch, EngineInfo};
 
@@ -48,7 +47,7 @@ pub fn find_binary(name: &str, override_dir: &str) -> Option<PathBuf> {
 }
 
 pub fn version_of(bin: &Path) -> Option<String> {
-    let out = Command::new(bin).arg("--version").output().ok()?;
+    let out = crate::engine::command(bin).arg("--version").output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
     d::parse_version(&text)
 }
@@ -68,6 +67,18 @@ pub fn swtpm_path() -> Option<PathBuf> {
     find_binary("swtpm", "")
 }
 
+/// Samba-`smbd`, das QEMU für die SLIRP-SMB-Freigabe startet. QEMU bricht den Start
+/// ab, wenn es fehlt — deshalb wird `smb=` nur gesetzt, wenn es da ist.
+/// Homebrew-QEMU erwartet `samba-dot-org-smbd` (aus `brew install samba`).
+pub fn smbd_available() -> bool {
+    let candidates: &[&str] = match HostOs::current() {
+        HostOs::MacOs => &["/opt/homebrew/sbin/samba-dot-org-smbd", "/usr/local/sbin/samba-dot-org-smbd"],
+        HostOs::Linux => &["/usr/sbin/smbd"],
+        HostOs::Windows => &[],
+    };
+    candidates.iter().any(|p| Path::new(p).is_file())
+}
+
 pub fn retroarch_path(settings: &Settings) -> Option<PathBuf> {
     let p = Path::new(&settings.retroarch_path);
     if !settings.retroarch_path.is_empty() && p.is_file() {
@@ -81,9 +92,23 @@ fn home() -> String {
 }
 
 /// Ordner der libretro-Cores (Einstellung, sonst RetroArch-Konvention, sonst App-Bundle).
+/// Windows: RetroArch ist portabel — Cores und System liegen neben `retroarch.exe`,
+/// egal ob unter `C:\\RetroArch-Win64` oder dem winget-Installationsort.
+fn retroarch_side_dir(settings: &Settings, sub: &str) -> Option<PathBuf> {
+    if HostOs::current() != HostOs::Windows {
+        return None;
+    }
+    let bin = retroarch_path(settings)?;
+    let p = bin.parent()?.join(sub);
+    p.is_dir().then_some(p)
+}
+
 pub fn cores_dir(settings: &Settings) -> PathBuf {
     if !settings.cores_dir.is_empty() {
         return PathBuf::from(&settings.cores_dir);
+    }
+    if let Some(p) = retroarch_side_dir(settings, "cores") {
+        return p;
     }
     let (cores, _) = d::retroarch_dirs(HostOs::current(), &home());
     let p = PathBuf::from(cores);
@@ -101,6 +126,9 @@ pub fn system_dir(settings: &Settings) -> PathBuf {
     if !settings.system_dir.is_empty() {
         return PathBuf::from(&settings.system_dir);
     }
+    if let Some(p) = retroarch_side_dir(settings, "system") {
+        return p;
+    }
     let (_, system) = d::retroarch_dirs(HostOs::current(), &home());
     PathBuf::from(system)
 }
@@ -114,10 +142,11 @@ pub fn prefix_of(bin: &Path) -> String {
 }
 
 /// UEFI-Firmware: (Code, Vars-Vorlage) — erstes existierendes Paar.
-pub fn find_uefi(qemu_bin: &Path, arch: Arch) -> (Option<PathBuf>, Option<PathBuf>) {
+pub fn find_uefi(qemu_bin: &Path, arch: Arch, secure: bool) -> (Option<PathBuf>, Option<PathBuf>) {
     let prefix = prefix_of(qemu_bin);
-    let code = d::uefi_candidates(&prefix, arch).into_iter().map(PathBuf::from).find(|p| p.is_file());
-    let vars = d::uefi_vars_template(&prefix, arch).into_iter().map(PathBuf::from).find(|p| p.is_file());
+    let bin_dir = qemu_bin.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let code = d::uefi_candidates(&prefix, &bin_dir, arch, secure).into_iter().map(PathBuf::from).find(|p| p.is_file());
+    let vars = d::uefi_vars_template(&prefix, &bin_dir, arch).into_iter().map(PathBuf::from).find(|p| p.is_file());
     (code, vars)
 }
 

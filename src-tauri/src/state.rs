@@ -7,7 +7,7 @@ use std::sync::Mutex;
 pub struct AppState {
     pub settings: Mutex<Settings>,
     /// Laufende Engine-Prozesse je Maschinen-Id.
-    pub runtime: Mutex<HashMap<String, Running>>,
+    pub runtime: Mutex<HashMap<String, std::sync::Arc<Running>>>,
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
 }

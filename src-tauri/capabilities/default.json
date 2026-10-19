@@ -1,11 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "virtual main window",
+  "description": "virtual main window — least privilege: nur Datei-/Ordnerauswahl; Links und Ordner öffnet das Rust-Kommando open_path (https + Ordner)",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:default",
-    "opener:default"
+    "dialog:allow-open"
   ]
 }
