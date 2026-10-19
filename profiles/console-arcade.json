@@ -61,5 +61,16 @@
       "zip",
       "7z"
     ]
+  },
+  "en": {
+    "name": "Arcade / Neo Geo",
+    "family": "Arcade",
+    "versions": [
+      "Neo Geo",
+      "CPS-1 / CPS-2",
+      "various arcade boards"
+    ],
+    "hint": "ROM sets as ZIP; Neo Geo also needs neogeo.zip in the same folder.",
+    "notes": ""
   }
 }

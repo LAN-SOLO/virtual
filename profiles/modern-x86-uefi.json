@@ -58,5 +58,21 @@
   "notes": "Virtualisiert über den Beschleuniger des Hosts (HVF/WHPX/KVM); auf ARM-Hosts läuft dieses Profil emuliert und entsprechend langsam.",
   "defaultDiskGb": 64,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "PC — current (UEFI)",
+    "family": "Current x86 systems",
+    "versions": [
+      "Windows 10",
+      "Windows 11",
+      "Windows Server",
+      "Linux",
+      "FreeBSD",
+      "OpenBSD",
+      "NetBSD",
+      "Haiku"
+    ],
+    "hint": "Insert the install medium as ISO. Windows 11 requires TPM 2.0 and UEFI — both are set.",
+    "notes": "Virtualized through the host accelerator (HVF/WHPX/KVM); on ARM hosts this profile runs emulated and correspondingly slowly."
+  }
 }

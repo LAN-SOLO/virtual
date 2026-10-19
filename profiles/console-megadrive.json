@@ -68,5 +68,18 @@
       "cue",
       "chd"
     ]
+  },
+  "en": {
+    "name": "Mega Drive / Genesis",
+    "family": "Sega 8/16-bit",
+    "versions": [
+      "Master System",
+      "Game Gear",
+      "Mega Drive / Genesis",
+      "Mega-CD / Sega CD",
+      "SG-1000"
+    ],
+    "hint": "Mega-CD needs bios_CD_E.bin, bios_CD_U.bin or bios_CD_J.bin in the system folder.",
+    "notes": ""
   }
 }

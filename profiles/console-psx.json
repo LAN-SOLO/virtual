@@ -65,5 +65,14 @@
       "iso",
       "bin"
     ]
+  },
+  "en": {
+    "name": "PlayStation",
+    "family": "Sony PlayStation",
+    "versions": [
+      "PlayStation"
+    ],
+    "hint": "Put the BIOS files scph5500.bin (JP), scph5501.bin (US) and scph5502.bin (EU) into the system folder. Discs as .cue/.bin or .chd.",
+    "notes": ""
   }
 }

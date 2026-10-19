@@ -51,5 +51,16 @@
   "notes": "QEMU q800: 68040, NuBus-Framebuffer, SCSI-Platte, ADB-Eingabe. ROM liefert der Nutzer.",
   "defaultDiskGb": 2,
   "needsRom": true,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "Mac 1994 — Quadra 800",
+    "family": "Classic Mac OS (68k)",
+    "versions": [
+      "System 7.1 – 7.6",
+      "Mac OS 8.0 / 8.1",
+      "A/UX 3.x"
+    ],
+    "hint": "Needs the Quadra 800 ROM (1 MB, any file name) as ROM medium plus an install CD or floppies as IMG.",
+    "notes": "QEMU q800: 68040, NuBus framebuffer, SCSI disk, ADB input. You supply the ROM."
+  }
 }

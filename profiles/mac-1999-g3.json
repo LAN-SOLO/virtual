@@ -53,5 +53,16 @@
   "notes": "QEMU mac99 (via=pmu), Screamer-Audio, Sungem-Ethernet; Grafik ohne Beschleunigung.",
   "defaultDiskGb": 8,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "Mac 1999 — Power Mac G3",
+    "family": "Classic Mac OS (PowerPC)",
+    "versions": [
+      "Mac OS 8.5 – 9.2.2",
+      "Linux (ppc)",
+      "NetBSD (macppc)"
+    ],
+    "hint": "Boots OpenBIOS without a ROM. Insert the install CD as ISO; after installing, choose “Boot from disk” in OpenBIOS if needed.",
+    "notes": "QEMU mac99 (via=pmu), Screamer audio, Sungem Ethernet; graphics without acceleration."
+  }
 }

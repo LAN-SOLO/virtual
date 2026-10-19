@@ -21,10 +21,19 @@ fn stop_all(st: &Arc<AppState>) {
     }
 }
 
+/// Laufen Maschinen oder Vorgänge (Snapshot, Wandlung, Löschen, Start)? Dann wird
+/// vor dem Beenden gefragt — ein abgebrochener qemu-img-Snapshot fehlte sonst in der Liste.
 fn any_running(app: &tauri::AppHandle) -> bool {
     app.try_state::<Arc<AppState>>()
-        .map(|st| !st.runtime.lock().unwrap().is_empty())
+        .map(|st| !st.runtime.lock().unwrap().is_empty() || !st.busy.lock().unwrap().is_empty())
         .unwrap_or(false)
+}
+
+/// Inhalt des Ereignisses `close-requested`: läuft nur ein Vorgang, nennt die
+/// Oberfläche diesen statt „Maschinen laufen“.
+fn close_payload(app: &tauri::AppHandle) -> serde_json::Value {
+    let busy = app.try_state::<Arc<AppState>>().map(|st| !st.busy.lock().unwrap().is_empty()).unwrap_or(false);
+    serde_json::json!({ "busy": busy })
 }
 
 fn main() {
@@ -41,7 +50,7 @@ fn main() {
             app.manage(Arc::new(AppState {
                 settings: Mutex::new(s),
                 runtime: Mutex::new(HashMap::new()),
-                starting: Mutex::new(Default::default()),
+                busy: Mutex::new(Default::default()),
                 config_dir,
                 data_dir,
             }));
@@ -86,7 +95,7 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if any_running(window.app_handle()) {
                     api.prevent_close();
-                    let _ = window.emit("close-requested", ());
+                    let _ = window.emit("close-requested", close_payload(window.app_handle()));
                 }
             }
         })
@@ -96,7 +105,7 @@ fn main() {
             // Cmd+Q / Menü „Beenden“: wie Fenster schließen; `quit_app` beendet mit Code 0
             tauri::RunEvent::ExitRequested { api, code: None, .. } if any_running(app) => {
                 api.prevent_exit();
-                let _ = app.emit("close-requested", ());
+                let _ = app.emit("close-requested", close_payload(app));
             }
             tauri::RunEvent::Exit => {
                 if let Some(st) = app.try_state::<Arc<AppState>>() {

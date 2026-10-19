@@ -84,7 +84,7 @@ Zusatzargumente (nested) gehen bewusst ungefiltert an QEMU — sie stehen in der
 ## Bekannte Einschränkungen
 
 - Engines werden nicht mitgeliefert (QEMU, RetroArch, optional swtpm/Samba).
-- Fehlermeldungen des Backends sind deutsch, auch bei englischer Oberfläche.
+- Fehlermeldungen des Backends sind deutsch; die englische Oberfläche übersetzt sie (`src/backendText.ts`, seit Runde 2). Betriebssystem-Fehlertexte (`os error …`) kommen in der Sprache des Systems.
 - Tarif „nested“ ohne Lizenzprüfung (Vorabzugang); Bridged = NAT; kein Medienwechsel im Betrieb; Anzeige im Engine-Fenster.
 - Secure Boot: Schlüssel nicht vorinstalliert; mit HVF/WHPX normales UEFI.
 - Windows: kein TPM (kein swtpm), keine gemeinsamen Ordner (QEMU ohne 9p/SMB), QMP über localhost-TCP.
@@ -179,3 +179,107 @@ Windows-Installer-Layout, Secure-Boot-Logik, Wegwerf-Snapshot-Ablehnung, Schlie�
   `virtio-vga-gl` kann, ist ungeprüft — bei Abbruch die GL-Option abwählen (Standardprofile haben GL aus).
 - Windows-11-Gäste: ohne swtpm kein TPM — der Windows-11-Installer verweigert dann die Installation.
 - `quit_app` räumt Sockets im Temp-Ordner nicht auf (werden beim nächsten Start der Maschine ersetzt).
+
+## Runde 2 (2026-10-20)
+
+Basis `716fbc4`. Ziel: Reste aus Runde 1 im Code beheben und die App gegen die Fehlermuster L1–L13
+aus den anderen Tools prüfen. „Getestet“ heißt ausgeführt; was nur am Gerät geht, steht unten.
+
+### Testlauf
+
+| Was | Befehl | Ergebnis |
+| --- | --- | --- |
+| Rust-Kern + App | `cargo test --workspace` | core 47 (vorher 39) + App 12 (vorher 9) grün, 1 ignored = Live-Test |
+| QMP + Snapshots live | `cargo test -p virtual -- --ignored qemu_live --nocapture` | grün gegen `/opt/homebrew/bin/qemu-system-i386` (Pause/Weiter/Reset laufen jetzt über die neue Warte-Logik) |
+| Backend-Übersetzung | `pnpm test:ui` | 4/4 grün; der Abdeckungstest findet alle deutschen Meldungen in `src-tauri/` und `core/` und verlangt je ein Muster |
+| Windows-Typecheck | `cargo check --target x86_64-pc-windows-msvc --workspace --tests` (MSVC-Header/`llvm-rc` gestubbt, kein Linken) | grün, App und Kern — die `cfg(windows)`-Zweige kompilieren jetzt tatsächlich (Runde 1: nur Kern) |
+| Frontend | `pnpm build` (tsc + vite) | grün |
+| Oberfläche | headless Chromium + gemocktes IPC (Dialog-Plugin wie 2.7: `window.confirm` immer truthy), 960×600 = Mindestgröße, DE/EN × dunkel/hell × Windows-/macOS-Plattform | 4 × 15 Schritte grün: keine Überläufe, keine fremdsprachigen Texte, keine Konsolenfehler |
+| Abhängigkeiten | `cargo audit`, `pnpm audit` | unverändert nur `zip` 4.6.1 im Updater (s. u.); pnpm ohne Funde |
+
+### Behoben
+
+1. **L2 — Backend-Meldungen deutsch in der englischen Oberfläche.** `src/backendText.ts` übersetzt alle
+   Fehler, Start-Hinweise (Log, Kommandozeilen-Vorschau) und Installationshinweise; eingebettete Ursachen
+   („Abbild nicht lesbar: CUE: …“) werden rekursiv mitübersetzt, Engine-Ausgabe bleibt unverändert.
+   Gilt für Toasts, Fehlerleiste, Log, Vorschau, Engine-Liste und Assistent.
+2. **L12 — Profile nur deutsch.** Alle 27 Profile haben einen Block `en` (Name, Familie, Versionen,
+   Hinweis, Notizen); Assistent, Kopfzeile und Namensvorschlag folgen der Sprache, die Suche findet beide.
+   Test `every_builtin_profile_has_english_texts`.
+3. **L9 — gleichzeitige Vorgänge.** Neue Belegung je Maschine (`AppState.busy`, RAII-Guard): Start,
+   Snapshot (anlegen/wiederherstellen/löschen), Medium einlegen (Wandlung) und Löschen schließen sich
+   gegenseitig aus. Vorher konnte man nach einem Wechsel der Auswahl (die Oberfläche vergaß ihren
+   „busy“-Zustand) während eines langen Snapshots starten oder die Maschine löschen; eine Wandlung schrieb
+   dann in einen gelöschten Ordner. Löschen prüft jetzt auch „startet gerade“.
+4. **L9 — Steuerung hing hinter langen Snapshots.** `savevm` hält die QMP-Verbindung bis 15 min. Pause,
+   Weiter, Reset und Stopp warteten so lange (Knopf hängt), die 4-s-Statusabfrage stapelte blockierte
+   Threads, und **„Stopp erzwingen“ wartete ebenfalls** auf das Ende des Snapshots. Jetzt: Steuerung wartet
+   max. 3 s und meldet „Engine beschäftigt“, die Statusabfrage überspringt, „Stopp erzwingen“ beendet sofort.
+   Unit-Test mit gehaltener Verbindung.
+5. **L11/L13 — Update-Fehler verschluckt; Update beendete Gäste ohne Nachfrage.** Installationsfehler
+   (Banner, Einstellungen, Auto-Update) erscheinen als Meldung in der UI-Sprache, der Prüffehler zeigt die
+   Ursache. Laufen Maschinen, fragt virtual vorher; das Backend lädt erst, beendet dann die Engines und
+   installiert (der Windows-Installer beendet virtual sofort — QEMU lief sonst verwaist weiter).
+6. **L9 — Beenden während eines Vorgangs.** Schließen/⌘Q fragt auch, wenn nur ein Vorgang läuft
+   (z. B. qemu-img-Snapshot einer gestoppten Maschine), mit eigenem Text.
+7. **L4/L5 — CUE aus Windows.** CUE mit UTF-8-BOM scheiterte („keine FILE-Zeile“), Windows-1252-Umlaute
+   im Dateinamen machten die Datei unlesbar, `Unterordner\Datei.bin` und abweichende Schreibweise wurden
+   unter macOS nicht gefunden. Alle vier Fälle behoben und getestet.
+8. **L4 — BOM in JSON.** Eigene Profile, `machine.json`, `snapshots.json` und `settings.json` aus dem
+   Windows-Editor (UTF-8 mit BOM) wurden still ignoriert bzw. auf Standard zurückgesetzt.
+9. **L5 — Windows-Dateisystem.** Atomares Umbenennen (JSON, ISO-Wandlung) wiederholt bei Freigabe-/Sperr-
+   verletzungen (Virenscanner, OneDrive) bis ~3 s; reservierte Namen (`CON`, `NUL`, `COM1` …) als
+   Maschinenname ergaben einen Ordner, den Windows nicht anlegen kann → `con-vm`; Pfade aus den
+   Einstellungen ohne Anführungszeichen („Als Pfad kopieren“), nacktes `D:` → `D:\` (sonst `D:vm`
+   relativ zum Laufwerks-Arbeitsordner); RetroArch-Pfad als Datei ohne Rücksicht auf Groß-/Kleinschreibung;
+   gewandelte ISO-Namen auf 80 Zeichen gekürzt (MAX_PATH unter AppData), ohne Punkt/Leerzeichen am Ende;
+   abgebrochene Wandlung lässt keine `.iso.part` liegen.
+10. **L8 — Log nach Neustart.** `machine_log` las die ganze `log.txt` in den Speicher; jetzt nur die
+    letzten 512 KiB. Löschen einer Maschine (große Platten, Virenscanner) läuft nicht mehr im UI-Thread.
+11. **L6 — Tastenbeschriftung.** „⌘/Strg“ fest verdrahtet → macOS „⌘ ,“, Windows „Strg + ,“ (DE) bzw.
+    „Ctrl + ,“ (EN) in Einstellungen und Handbuch.
+12. **L3 — Sprache beim ersten Start.** Das Backend nutzt `sys-locale` (macOS: CFLocale, Windows:
+    GetUserDefaultLocaleName — nicht `LANG`), war also korrekt; fällt das Laden der Einstellungen aus,
+    nimmt die Oberfläche jetzt `navigator.language` statt fest Deutsch.
+13. Kleinigkeiten: Esc schließt bei offener Nachfrage nur die Nachfrage (nicht auch die Einstellungen
+    darunter); `n`/`?` lösen hinter dem offenen Handbuch nichts aus; Snapshot-Dialog schließt mit Esc;
+    Medien-Knöpfe und „Maschine löschen“ sind während einer Wandlung gesperrt; Snapshot löschen sperrt
+    die Knöpfe bis zum Ende.
+
+### L1–L13 geprüft
+
+| Muster | Ergebnis |
+| --- | --- |
+| L1 `window.confirm/alert` | kein Treffer — eigener Promise-Dialog; im Mock liefert `window.confirm` wie Plugin 2.7 immer truthy, Abbrechen ruft trotzdem nichts auf (Wiederherstellen, Löschen, Beenden, Update geprüft) |
+| L2 Backend-Sprache | behoben (1) |
+| L3 Erststart-Sprache | in Ordnung (sys-locale), Fallback ergänzt (12) |
+| L4 BOM | behoben (7, 8); CSV gibt es nicht |
+| L5 Windows-Dateisystem | behoben (9); Namen aus fremden Quellen: die einzige ist der `FILE`-Eintrag einer CUE — er wird nur gelesen, nie als Zielname benutzt |
+| L6 Kürzel | behoben (11) |
+| L7 Fremdinhalte | kein gerendertes HTML, kein `dangerouslySetInnerHTML`, CSP `default-src 'self'`; Update-Notizen werden nicht angezeigt |
+| L8 schwere Arbeit | alle langen Kommandos `spawn_blocking`; Log-Tail und Löschen ergänzt (10) |
+| L9 lange Vorgänge | behoben (3, 4, 5, 6) |
+| L10 Zeit | Zeitstempel UTC (`…Z`), Anzeige lokal (geprüft: 00:30Z am 29.03.2026 = 01:30 MEZ, Tag der Zeitumstellung); keine Datumsauswahl, keine Wochen |
+| L11 Bestätigung/Fehler | Löschen, harter Stopp, Wiederherstellen, Snapshot löschen, Beenden, Update mit laufenden Maschinen fragen; Update-Fehler werden angezeigt (5) |
+| L12 Texte | i18n DE/EN vollständig (tsc erzwingt gleiche Schlüssel), Profile (2), Handbuch DE/EN ergänzt |
+| L13 Updater | Version 1.0.0, Endpoint https, Pubkey gesetzt; Vergleich macht das Plugin (semver); Fehler in UI-Sprache (5) |
+
+### Sicherheit
+
+- `zip` 4.6.1 (RUSTSEC-2026-0367/0368/0369) bleibt: kein semver-kompatibles Update von
+  tauri-plugin-updater. Der Updater entpackt nur minisign-signierte Pakete; die Windows-Artefakte
+  (`createUpdaterArtifacts: true`, nicht v1-kompatibel) sind `.exe`/`.msi` und laufen gar nicht über zip.
+- Windows-QMP über TCP 127.0.0.1 ohne Authentifizierung: unverändert offen (Rust-std ohne AF_UNIX).
+- Neu: keine. Die Belegung je Maschine verhindert zusätzlich, dass zwei Prozesse gleichzeitig dieselbe
+  qcow2 öffnen.
+
+### Nur am Gerät prüfbar (zusätzlich zur Liste oben)
+
+- [ ] Windows: Update mit laufender Maschine → Nachfrage; nach „OK“ kein qemu-system-Prozess mehr im Task-Manager, Installer startet.
+- [ ] Windows: Maschine „CON“ anlegen → Ordner `con-vm`; Maschinenordner `D:` (ohne Backslash) in den Einstellungen → Maschinen landen in `D:\<name>`.
+- [ ] Windows: QEMU-Ordner per Explorer „Als Pfad kopieren“ (mit Anführungszeichen) einfügen → „Erneut suchen“ findet QEMU.
+- [ ] Windows: CUE aus einem alten Brennprogramm (Windows-1252, Umlaut im BIN-Namen) einlegen → ISO entsteht.
+- [ ] Windows mit aktivem Defender/OneDrive-Ordner als Maschinenordner: Maschine anlegen, Hardware speichern, Snapshot — keine „Umbenennen fehlgeschlagen“-Meldung.
+- [ ] Beide: Snapshot einer laufenden Maschine mit 4–8 GB RAM; währenddessen Auswahl wechseln und zurück, Pause drücken (→ „Engine beschäftigt“ nach 3 s), „Stopp erzwingen“ (→ sofort aus).
+- [ ] Beide: Schließen während eines Snapshots einer gestoppten Maschine → eigener Hinweistext.
+- [ ] Beide: englische Oberfläche — Start ohne QEMU zeigt „qemu-system-… not found — …“.

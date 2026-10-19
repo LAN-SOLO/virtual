@@ -57,5 +57,19 @@
   "notes": "Klassische PCI-Maschine mit RTL8139; USB-Eingabe erst ab XP-Profil.",
   "defaultDiskGb": 8,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "PC 1999 — Pentium III",
+    "family": "Windows 98 SE / ME / 2000",
+    "versions": [
+      "Windows 98 SE",
+      "Windows ME",
+      "Windows 2000",
+      "BeOS 5",
+      "Haiku (old)",
+      "Linux 2.2/2.4"
+    ],
+    "hint": "Full clock speed is usually fine here; for Windows 98 SE throttle to 80 % if needed.",
+    "notes": "Classic PCI machine with RTL8139; USB input only from the XP profile on."
+  }
 }

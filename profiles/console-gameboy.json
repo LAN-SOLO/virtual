@@ -59,5 +59,15 @@
       "gbc",
       "dmg"
     ]
+  },
+  "en": {
+    "name": "Game Boy / Color",
+    "family": "Game Boy",
+    "versions": [
+      "Game Boy",
+      "Game Boy Color"
+    ],
+    "hint": "Insert the ROM as .gb or .gbc.",
+    "notes": ""
   }
 }

@@ -62,5 +62,14 @@
       "cue",
       "dosz"
     ]
+  },
+  "en": {
+    "name": "DOS games (fast)",
+    "family": "DOS",
+    "versions": [
+      "MS-DOS games without installation"
+    ],
+    "hint": "Insert a folder or ZIP with the game — no operating system install. For real DOS systems use the “PC 1992” profile.",
+    "notes": ""
   }
 }

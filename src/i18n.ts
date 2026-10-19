@@ -1,3 +1,5 @@
+import { shortcut } from './platform';
+
 export type Lang = 'de' | 'en';
 
 const de = {
@@ -230,6 +232,11 @@ const de = {
   accentViolet: 'Violett',
   accentAmber: 'Bernstein',
   confirmDangerous: 'Vor Löschen und hartem Stopp nachfragen',
+  confirmUpdateRunning: (n: number) =>
+    n === 1
+      ? 'Eine Maschine läuft noch. Das Update beendet sie hart und startet virtual neu. Nicht gespeicherte Daten im Gast gehen verloren. Trotzdem installieren?'
+      : `${n} Maschinen laufen noch. Das Update beendet sie hart und startet virtual neu. Nicht gespeicherte Daten in den Gästen gehen verloren. Trotzdem installieren?`,
+  confirmQuitBusy: 'Ein Vorgang läuft noch (Snapshot, Medium oder Löschen). virtual trotzdem beenden? Der Vorgang wird dann nicht sauber abgeschlossen.',
   confirmQuit: (n: number) =>
     n === 1
       ? 'Eine Maschine läuft noch. virtual beenden und sie hart stoppen? Nicht gespeicherte Daten im Gast gehen verloren.'
@@ -272,7 +279,7 @@ const de = {
   licenseNote:
     '// Engines: QEMU (GPLv2) und RetroArch (GPLv3) laufen als eigenständige Prozesse und werden nicht in virtual gelinkt. virtual selbst hat kein Konto, keine Telemetrie.',
   saveSettings: 'Speichern',
-  shortcuts: 'Tastaturkürzel: n neue Maschine · ? Hilfe · ⌘/Strg+, Einstellungen · Esc schließt',
+  shortcuts: `Tastaturkürzel: n neue Maschine · ? Hilfe · ${shortcut('de', ',')} Einstellungen · Esc schließt`,
 
   // misc
   stateOf: (s: string) => s,
@@ -500,6 +507,11 @@ const en: Dict = {
   accentViolet: 'Violet',
   accentAmber: 'Amber',
   confirmDangerous: 'Confirm before deleting and force-stopping',
+  confirmUpdateRunning: (n: number) =>
+    n === 1
+      ? 'A machine is still running. The update stops it hard and restarts virtual. Unsaved data in the guest is lost. Install anyway?'
+      : `${n} machines are still running. The update stops them hard and restarts virtual. Unsaved data in the guests is lost. Install anyway?`,
+  confirmQuitBusy: 'An operation is still in progress (snapshot, medium or delete). Quit virtual anyway? The operation will then not complete cleanly.',
   confirmQuit: (n: number) =>
     n === 1
       ? 'A machine is still running. Quit virtual and force-stop it? Unsaved data in the guest will be lost.'
@@ -542,7 +554,7 @@ const en: Dict = {
   licenseNote:
     '// Engines: QEMU (GPLv2) and RetroArch (GPLv3) run as standalone processes and are not linked into virtual. virtual itself has no account, no telemetry.',
   saveSettings: 'Save',
-  shortcuts: 'Shortcuts: n new machine · ? help · ⌘/Ctrl+, settings · Esc closes',
+  shortcuts: `Shortcuts: n new machine · ? help · ${shortcut('en', ',')} settings · Esc closes`,
 
   stateOf: (s: string) => s,
   unsaved: 'unsaved changes',

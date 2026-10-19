@@ -45,11 +45,17 @@ in den System-Ordner (Einstellungen → Engines zeigt die Pfade).
 pnpm install
 pnpm tauri dev
 cargo test --workspace
+pnpm test:ui          # Übersetzung der Backend-Meldungen (Node ≥ 22.6, ohne Abhängigkeiten)
 # gegen echte Engines (macOS/Linux, QEMU bzw. RetroArch installiert):
 cargo test -p virtual -- --ignored qemu_live
 cargo run -p virtual-core --example qemucheck
 cargo run -p virtual-core --example retrocheck <retroarch> <cores-ordner> <rom>
 ```
+
+Backend-Meldungen sind deutsch; `src/backendText.ts` übersetzt sie für die englische
+Oberfläche. Neue Fehlermeldungen brauchen dort ein Muster — `pnpm test:ui` liest alle
+Meldungen aus `src-tauri/` und `core/` und schlägt sonst fehl. Profile tragen ihre englischen
+Anzeigetexte im Block `en` (Test: `every_builtin_profile_has_english_texts`).
 
 Der Rust-Kern (`core/`, Crate `virtual-core`) ist Tauri-frei und testbar: Datenmodell,
 Maschinenprofile (`profiles/*.json`, eingebettet), QEMU-Kommandozeile als reine Funktion,

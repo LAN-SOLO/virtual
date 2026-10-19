@@ -55,5 +55,18 @@
   "notes": "Virtualisiert, klassische Chipsatz-Emulation i440FX.",
   "defaultDiskGb": 32,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "PC — current (BIOS)",
+    "family": "x86 systems with legacy BIOS",
+    "versions": [
+      "Windows 7",
+      "Windows 8.1",
+      "ReactOS",
+      "older Linux distributions",
+      "FreeDOS (fast)"
+    ],
+    "hint": "For systems without a UEFI installer. ReactOS works best with an IDE disk and an e1000 network card.",
+    "notes": "Virtualized, classic i440FX chipset emulation."
+  }
 }

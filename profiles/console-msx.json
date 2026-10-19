@@ -62,5 +62,16 @@
       "dsk",
       "cas"
     ]
+  },
+  "en": {
+    "name": "MSX",
+    "family": "MSX",
+    "versions": [
+      "MSX",
+      "MSX2",
+      "MSX2+"
+    ],
+    "hint": "The core needs its Machines and Databases folders in the system folder (blueMSX).",
+    "notes": ""
   }
 }

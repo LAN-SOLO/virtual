@@ -59,5 +59,21 @@
   "notes": "i440FX + PIIX3, Cirrus-VGA mit VESA, Sound Blaster 16 + AdLib, NE2000-PCI (nur wenn Netz eingeschaltet wird).",
   "defaultDiskGb": 4,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "PC 1996 — Pentium 133",
+    "family": "Windows 9x & contemporaries",
+    "versions": [
+      "Windows 95",
+      "Windows 98",
+      "Windows NT 4",
+      "OS/2 Warp 3/4",
+      "BeOS 5",
+      "QNX 6",
+      "NeXTSTEP 3.3 / OpenStep 4",
+      "Solaris 2.x x86"
+    ],
+    "hint": "Install Windows 95/98 from a boot floppy and CD; the clock stays throttled so the timer bug of old kernels does not strike.",
+    "notes": "i440FX + PIIX3, Cirrus VGA with VESA, Sound Blaster 16 + AdLib, NE2000 PCI (only when networking is switched on)."
+  }
 }

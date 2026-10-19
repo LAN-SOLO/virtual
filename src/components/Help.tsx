@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Lang } from '../i18n';
+import { shortcut } from '../platform';
 
 // Selbstständiges Hilfe-System: schwebender ?-Button, First-Run-Tutorial
 // und durchsuchbares Handbuch. Inhalte liegen bewusst hier, nicht in i18n.ts.
@@ -115,6 +116,10 @@ const de: Content = {
         '• Port-Weiterleitungen und VNC nur auf 127.0.0.1; geöffnet werden nur https-Links und Maschinenordner, nie Dateien oder Programme.',
         '• Fenster friert bei Snapshots und Start nicht mehr ein; Windows öffnet keine Konsolenfenster mehr.',
         '• Schließen mit laufenden Maschinen fragt nach; was der Host nicht kann (TPM, OpenGL, Ordner), steht im Log.',
+        '• Zweite Prüfrunde: Meldungen der Engine-Steuerung erscheinen in der Sprache der Oberfläche, Profile haben englische Texte.',
+        '• Pro Maschine läuft immer nur ein Vorgang (Start, Snapshot, Medium, Löschen) — ein zweiter wird mit Hinweis abgelehnt. Während eines langen Snapshots melden Pause/Stopp „Engine beschäftigt“, „Stopp erzwingen“ greift sofort.',
+        '• Update mit laufenden Maschinen fragt nach und beendet sie vor der Installation; Fehler beim Update werden angezeigt.',
+        '• Windows: CUE-Dateien mit BOM, Windows-1252-Umlauten und \\-Pfaden, Profile/JSON aus dem Editor (BOM), reservierte Namen wie „CON“, Laufwerksangabe „D:“ und Pfade in Anführungszeichen werden vertragen.',
       ],
     },
     {
@@ -125,7 +130,7 @@ const de: Content = {
         '• macOS: brew install qemu · brew install --cask retroarch-metal · brew install swtpm (für TPM 2.0).',
         '• Windows: winget install SoftwareFreedomConservancy.QEMU · winget install Libretro.RetroArch. Für die Beschleunigung (WHPX) in den Windows-Features „Windows-Hypervisorplattform“ aktivieren. swtpm gibt es unter Windows nicht — TPM entfällt dort; Cores und System-Ordner sucht virtual neben retroarch.exe.',
         '• Linux: sudo apt install qemu-system retroarch swtpm (Debian/Ubuntu) bzw. sudo dnf install qemu retroarch swtpm (Fedora).',
-        '• Liegt eine Engine an einem ungewöhnlichen Ort, tragen Sie den Pfad in den Einstellungen ein. „Erneut suchen“ prüft sofort.',
+        '• Liegt eine Engine an einem ungewöhnlichen Ort, tragen Sie den Pfad in den Einstellungen ein. „Erneut suchen“ prüft sofort. Anführungszeichen (Explorer „Als Pfad kopieren“) entfernt virtual; ein nacktes „D:“ wird zu „D:\\“.',
         '• QEMU (GPLv2) und RetroArch (GPLv3) laufen als eigenständige Prozesse und werden nicht in virtual gelinkt.',
       ],
     },
@@ -137,7 +142,7 @@ const de: Content = {
         '• Kategorien: Aktuell (virtualisiert), Retro-PC (486 bis Pentium 4), Retro-Mac (68k und PowerPC), andere Architekturen (RISC-V, MIPS) und Konsolen.',
         '• Profile mit „beta“ sind experimentell — die Emulation der Maschine ist in QEMU noch nicht ausgereift (Quadra 800, Power Mac G3, Malta).',
         '• Profile aus dem Tarif „nested“ sind im Vorabzugang ebenfalls nutzbar.',
-        '• Eigene Profile: JSON-Dateien im Profile-Ordner des Konfigurationsverzeichnisses überlagern die eingebauten per id (Export/Import in der App ist für eine spätere Version geplant).',
+        '• Eigene Profile: JSON-Dateien im Profile-Ordner des Konfigurationsverzeichnisses überlagern die eingebauten per id (Export/Import in der App ist für eine spätere Version geplant). UTF-8 mit oder ohne BOM; englische Anzeigetexte optional im Block „en“ (name, family, versions, hint, notes).',
       ],
     },
     {
@@ -199,6 +204,7 @@ const de: Content = {
         '• Konsolen: Save-States, nur im laufenden Spiel.',
         '• Snapshot-Bäume mit Zweigen und verknüpfte Klone sind für eine spätere Version geplant (nested).',
         '• Die Liste liegt als snapshots.json im Maschinenordner.',
+        '• Ein Snapshot mit viel Gast-RAM dauert. Solange er läuft, lehnt virtual Start, Löschen und einen zweiten Snapshot derselben Maschine ab; Pause und Stopp melden „Engine beschäftigt“, „Stopp erzwingen“ beendet sofort (der Snapshot ist dann verloren).',
       ],
     },
     {
@@ -224,7 +230,7 @@ const de: Content = {
     {
       id: 'shortcuts',
       title: 'Tastaturkürzel',
-      body: ['• n — neue Maschine', '• ? — Handbuch', '• ⌘/Strg + , — Einstellungen', '• Esc — Dialog schließen'],
+      body: ['• n — neue Maschine', '• ? — Handbuch', `• ${shortcut('de', ',')} — Einstellungen`, '• Esc — Dialog schließen'],
     },
     {
       id: 'trouble',
@@ -239,6 +245,8 @@ const de: Content = {
         '• „Fehlende BIOS-Dateien“: Dateien mit exakt dem genannten Namen in den System-Ordner legen.',
         '• Windows 95/98 friert beim Start ein oder meldet Schutzfehler: Taktbremse auf 60–75 % und nur einen Kern.',
         '• Der Start schlägt sofort fehl: „Log“ zeigt die Ausgabe der Engine; „Übersicht“ die Kommandozeile zum Nachstellen im Terminal.',
+        '• „CUE: Datendatei … fehlt“: Die BIN muss neben der CUE liegen; virtual sucht auch ohne Rücksicht auf Groß-/Kleinschreibung und versteht Windows-Pfade (Unterordner\\Datei.bin).',
+        '• Update mit laufenden Maschinen: virtual fragt nach, lädt das Update, beendet die Maschinen und installiert dann — vorher im Gast herunterfahren.',
       ],
     },
   ],
@@ -325,6 +333,10 @@ const en: Content = {
         '• Port forwards and VNC on 127.0.0.1 only; only https links and machine folders are opened, never files or programs.',
         '• The window no longer freezes during snapshots and start; Windows no longer opens console windows.',
         '• Closing with machines running asks first; whatever the host cannot do (TPM, OpenGL, folders) is noted in the log.',
+        '• Second review round: messages from the engine control appear in the UI language, profiles have English texts.',
+        '• Only one operation runs per machine at a time (start, snapshot, medium, delete) — a second one is refused with a note. During a long snapshot, pause/stop report “engine busy”; “Force stop” acts immediately.',
+        '• Updating with machines running asks first and stops them before installing; update errors are shown.',
+        '• Windows: CUE files with a BOM, Windows-1252 umlauts and \\ paths, profiles/JSON saved in Notepad (BOM), reserved names like “CON”, a bare drive “D:” and quoted paths are handled.',
       ],
     },
     {
@@ -335,7 +347,7 @@ const en: Content = {
         '• macOS: brew install qemu · brew install --cask retroarch-metal · brew install swtpm (for TPM 2.0).',
         '• Windows: winget install SoftwareFreedomConservancy.QEMU · winget install Libretro.RetroArch. For acceleration (WHPX) enable “Windows Hypervisor Platform” in Windows Features. swtpm is not available on Windows — no TPM there; virtual looks for cores and the system folder next to retroarch.exe.',
         '• Linux: sudo apt install qemu-system retroarch swtpm (Debian/Ubuntu) or sudo dnf install qemu retroarch swtpm (Fedora).',
-        '• If an engine lives somewhere unusual, enter its path in Settings. “Search again” checks immediately.',
+        '• If an engine lives somewhere unusual, enter its path in Settings. “Search again” checks immediately. virtual strips quotes (Explorer “Copy as path”); a bare “D:” becomes “D:\\”.',
         '• QEMU (GPLv2) and RetroArch (GPLv3) run as standalone processes and are not linked into virtual.',
       ],
     },
@@ -347,7 +359,7 @@ const en: Content = {
         '• Categories: Current (virtualized), Retro PC (486 to Pentium 4), Retro Mac (68k and PowerPC), other architectures (RISC-V, MIPS) and consoles.',
         '• Profiles marked “beta” are experimental — QEMU’s emulation of that machine is not yet mature (Quadra 800, Power Mac G3, Malta).',
         '• Profiles from the “nested” plan are usable during early access as well.',
-        '• Own profiles: JSON files in the profiles folder of the config directory override the built-in ones by id (export/import in the app is planned for a later version).',
+        '• Own profiles: JSON files in the profiles folder of the config directory override the built-in ones by id (export/import in the app is planned for a later version). UTF-8 with or without BOM; English display texts optionally in an “en” block (name, family, versions, hint, notes).',
       ],
     },
     {
@@ -409,6 +421,7 @@ const en: Content = {
         '• Consoles: save states, only in a running game.',
         '• Snapshot trees with branches and linked clones are planned for a later version (nested).',
         '• The list lives as snapshots.json in the machine folder.',
+        '• A snapshot with a lot of guest RAM takes a while. While it runs, virtual refuses start, delete and a second snapshot of the same machine; pause and stop report “engine busy”, “Force stop” ends it immediately (the snapshot is then lost).',
       ],
     },
     {
@@ -434,7 +447,7 @@ const en: Content = {
     {
       id: 'shortcuts',
       title: 'Keyboard shortcuts',
-      body: ['• n — new machine', '• ? — manual', '• ⌘/Ctrl + , — settings', '• Esc — close dialog'],
+      body: ['• n — new machine', '• ? — manual', `• ${shortcut('en', ',')} — settings`, '• Esc — close dialog'],
     },
     {
       id: 'trouble',
@@ -449,6 +462,8 @@ const en: Content = {
         '• “Missing BIOS files”: put files with exactly the listed names into the system folder.',
         '• Windows 95/98 freezes at boot or reports protection errors: clock throttle 60–75 % and a single core.',
         '• Start fails immediately: “Log” shows the engine output; “Overview” the command line to reproduce in a terminal.',
+        '• “CUE: data file … is missing”: the BIN must sit next to the CUE; virtual also matches regardless of upper/lower case and understands Windows paths (subfolder\\file.bin).',
+        '• Updating with machines running: virtual asks, downloads the update, stops the machines and then installs — shut the guests down beforehand.',
       ],
     },
   ],

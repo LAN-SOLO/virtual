@@ -3,7 +3,7 @@
 use crate::detect;
 use crate::engine::{self, libretro as lr, qemu, Running};
 use crate::settings::{self, Settings};
-use crate::state::AppState;
+use crate::state::{AppState, Op};
 use crate::store;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -145,7 +145,7 @@ fn converted_target(dir: &Path, src: &Path) -> PathBuf {
     if !first.exists() || converted_is_current(&first, src) {
         return first;
     }
-    let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "image".into());
+    let stem = image::iso_stem_for(src);
     for n in 2.. {
         let cand = dir.join(format!("{stem}-{n}.iso"));
         if !cand.exists() || converted_is_current(&cand, src) {
@@ -163,7 +163,12 @@ pub fn get_settings(st: State<'_, Shared>) -> Settings {
 }
 
 #[tauri::command]
-pub fn set_settings(st: State<'_, Shared>, settings: Settings) {
+pub fn set_settings(st: State<'_, Shared>, mut settings: Settings) {
+    // Pfade bereinigen: Anführungszeichen aus „Als Pfad kopieren“, `D:` → `D:\`
+    let win = cfg!(windows);
+    for p in [&mut settings.machines_dir, &mut settings.qemu_dir, &mut settings.retroarch_path, &mut settings.cores_dir, &mut settings.system_dir] {
+        *p = virtual_core::fsutil::normalize_user_path(p, win);
+    }
     settings::store(&st.config_dir, &settings);
     *st.settings.lock().unwrap() = settings;
 }
@@ -289,12 +294,18 @@ pub fn save_machine(st: State<'_, Shared>, mut machine: Machine) -> Result<Machi
 }
 
 #[tauri::command]
-pub fn delete_machine(st: State<'_, Shared>, id: String, delete_files: bool) -> Result<(), String> {
-    if is_running(&st, &id) {
-        return Err("Maschine läuft — erst stoppen, dann löschen".into());
-    }
-    let (dir, _) = load(&st, &id)?;
-    store::delete(&dir, delete_files)
+pub async fn delete_machine(st: State<'_, Shared>, id: String, delete_files: bool) -> Result<(), String> {
+    let st = st.inner().clone();
+    // Große Platten löschen dauert (Windows: Virenscanner) — nicht im UI-Thread
+    blocking(move || {
+        let _busy = st.begin(&id, Op::Delete)?;
+        if is_running(&st, &id) {
+            return Err("Maschine läuft — erst stoppen, dann löschen".into());
+        }
+        let (dir, _) = load(&st, &id)?;
+        store::delete(&dir, delete_files)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -330,14 +341,10 @@ fn start_machine_blocking(app: &AppHandle, shared: &Shared, id: &str) -> Result<
     if is_running(shared, id) {
         return Err("Maschine läuft bereits".into());
     }
-    // Zweiter Start derselben Maschine, solange der erste noch hochfährt: ablehnen,
-    // bevor er Socket und Platten-Lock des ersten Prozesses anfasst.
-    if !shared.starting.lock().unwrap().insert(id.to_string()) {
-        return Err("Maschine startet bereits".into());
-    }
-    let result = start_machine_inner(app, shared, id);
-    shared.starting.lock().unwrap().remove(id);
-    result
+    // Zweiter Start derselben Maschine, solange der erste noch hochfährt (oder ein
+    // Snapshot/eine Wandlung läuft): ablehnen, bevor er Socket und Platten-Lock anfasst.
+    let _busy = shared.begin(id, Op::Start)?;
+    start_machine_inner(app, shared, id)
 }
 
 fn start_machine_inner(app: &AppHandle, shared: &Shared, id: &str) -> Result<MachineStatus, String> {
@@ -459,16 +466,33 @@ pub fn machine_log(st: State<'_, Shared>, id: String) -> Vec<String> {
     if let Some(r) = running_of(&st, &id) {
         return r.log_lines();
     }
-    // Gestoppt: letzte Zeilen aus log.txt
-    load(&st, &id)
-        .ok()
-        .and_then(|(dir, _)| std::fs::read_to_string(dir.join("log.txt")).ok())
-        .map(|t| {
-            let lines: Vec<String> = t.lines().map(String::from).collect();
-            let skip = lines.len().saturating_sub(engine::LOG_LINES);
-            lines.into_iter().skip(skip).collect()
-        })
-        .unwrap_or_default()
+    // Gestoppt: letzte Zeilen aus log.txt (nur das Ende lesen — gesprächige Engines
+    // schreiben in einer langen Sitzung viele MB)
+    load(&st, &id).ok().map(|(dir, _)| log_tail(&dir.join("log.txt"), engine::LOG_LINES)).unwrap_or_default()
+}
+
+/// Letzte `max` Zeilen einer Logdatei, gelesen aus höchstens den letzten 512 KiB.
+pub fn log_tail(path: &Path, max: usize) -> Vec<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const WINDOW: u64 = 512 * 1024;
+    let Ok(mut f) = std::fs::File::open(path) else { return Vec::new() };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(WINDOW);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.lines().collect();
+    // mitten im Fenster angeschnittene erste Zeile verwerfen
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0);
+    }
+    let skip = lines.len().saturating_sub(max);
+    lines.into_iter().skip(skip).map(String::from).collect()
 }
 
 // --- Medien -----------------------------------------------------------------
@@ -482,6 +506,7 @@ pub async fn attach_media(st: State<'_, Shared>, id: String, kind: MediaKind, pa
 }
 
 fn attach_media_blocking(st: &Shared, id: &str, kind: MediaKind, path: String, slot: u32) -> Result<Machine, String> {
+    let _busy = st.begin(id, Op::Media)?;
     if is_running(st, id) {
         return Err("Medienwechsel im laufenden Betrieb folgt in einer späteren Version — bitte erst stoppen".into());
     }
@@ -519,6 +544,7 @@ pub fn list_snapshots(st: State<'_, Shared>, id: String) -> Result<Vec<Snapshot>
 pub async fn create_snapshot(st: State<'_, Shared>, id: String, name: String, note: String) -> Result<Snapshot, String> {
     let st = st.inner().clone();
     blocking(move || {
+        let _busy = st.begin(&id, Op::Snapshot)?;
         let (dir, mut m) = load(&st, &id)?;
         let settings = st.settings_clone();
         let running = running_of(&st, &id);
@@ -545,6 +571,7 @@ fn find_snapshot(dir: &Path, snapshot_id: &str) -> Result<Snapshot, String> {
 pub async fn restore_snapshot(st: State<'_, Shared>, id: String, snapshot_id: String) -> Result<(), String> {
     let st = st.inner().clone();
     blocking(move || {
+        let _busy = st.begin(&id, Op::Snapshot)?;
         let (dir, mut m) = load(&st, &id)?;
         let snap = find_snapshot(&dir, &snapshot_id)?;
         let settings = st.settings_clone();
@@ -564,6 +591,7 @@ pub async fn restore_snapshot(st: State<'_, Shared>, id: String, snapshot_id: St
 pub async fn delete_snapshot(st: State<'_, Shared>, id: String, snapshot_id: String) -> Result<(), String> {
     let st = st.inner().clone();
     blocking(move || {
+        let _busy = st.begin(&id, Op::Snapshot)?;
         let (dir, m) = load(&st, &id)?;
         let snap = find_snapshot(&dir, &snapshot_id)?;
         let settings = st.settings_clone();
@@ -663,7 +691,7 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfoDto>, Strin
 }
 
 #[tauri::command]
-pub async fn install_update(app: AppHandle) -> Result<(), String> {
+pub async fn install_update(app: AppHandle, st: State<'_, Shared>) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater
@@ -671,10 +699,18 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("Update-Prüfung fehlgeschlagen: {e}"))?
         .ok_or("Kein Update verfügbar")?;
-    update
-        .download_and_install(|_, _| {}, || {})
+    // Erst laden (dauert), dann laufende Engines beenden, dann installieren: Der
+    // Windows-Installer beendet virtual sofort — QEMU/RetroArch liefen sonst
+    // verwaist weiter. Die Oberfläche hat das vorher bestätigen lassen.
+    let bytes = update
+        .download(|_, _| {}, || {})
         .await
         .map_err(|e| format!("Update fehlgeschlagen: {e}"))?;
+    let running: Vec<Arc<Running>> = st.runtime.lock().unwrap().drain().map(|(_, r)| r).collect();
+    for r in running {
+        r.kill();
+    }
+    update.install(bytes).map_err(|e| format!("Update fehlgeschlagen: {e}"))?;
     app.restart();
 }
 
@@ -721,6 +757,22 @@ mod tests {
         assert_eq!(prepare_cd_image(&vm, &base.join("cd1/disc.bin").to_string_lossy()).unwrap(), "disc.iso");
         assert!(!vm.join("disc-3.iso").exists());
         // reine ISO bleibt, wo sie ist
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn log_tail_reads_only_the_end() {
+        let base = tempdir("logtail");
+        let f = base.join("log.txt");
+        assert!(log_tail(&f, 10).is_empty(), "fehlende Datei = leer");
+        let text: String = (0..100_000).map(|i| format!("zeile {i}\n")).collect();
+        std::fs::write(&f, &text).unwrap();
+        let tail = log_tail(&f, 500);
+        assert_eq!(tail.len(), 500);
+        assert_eq!(tail.last().unwrap(), "zeile 99999");
+        assert_eq!(tail[0], "zeile 99500");
+        std::fs::write(&f, "a\nb\n").unwrap();
+        assert_eq!(log_tail(&f, 500), vec!["a", "b"]);
         let _ = std::fs::remove_dir_all(&base);
     }
 

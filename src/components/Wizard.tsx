@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Category, CreateMachineInput, EngineInfo, Machine, Profile, api } from '../api';
-import { Dict } from '../i18n';
+import { Dict, Lang } from '../i18n';
+import { trBackend } from '../backendText';
 import { IconCheck, IconWarn } from '../icons';
-import { CATEGORIES, baseName, categoryLabel, extensionsForProfile, fmtMem, suggestName } from '../util';
+import { CATEGORIES, baseName, categoryLabel, extensionsForProfile, fmtMem, profText, suggestName } from '../util';
 
 export function Wizard({
   profiles,
@@ -14,6 +15,7 @@ export function Wizard({
   onCreated,
   onClose,
   onFail,
+  lang,
 }: {
   profiles: Profile[];
   machines: Machine[];
@@ -23,6 +25,7 @@ export function Wizard({
   onCreated: (m: Machine) => void;
   onClose: () => void;
   onFail: (e: unknown) => void;
+  lang: Lang;
 }) {
   const [step, setStep] = useState(0);
   const [cat, setCat] = useState<Category>('modern');
@@ -39,7 +42,9 @@ export function Wizard({
     () =>
       profiles.filter((p) => {
         if (query) {
-          const hay = [p.name, p.os.family, ...p.os.versions].join(' ').toLowerCase();
+          // in beiden Sprachen suchen („DOS games“ wie „DOS-Spiele“)
+          const en = profText(p, 'en');
+          const hay = [p.name, p.os.family, ...p.os.versions, en.name, en.family, ...en.versions].join(' ').toLowerCase();
           return hay.includes(query);
         }
         return p.category === cat;
@@ -53,7 +58,8 @@ export function Wizard({
 
   const pick = (p: Profile) => {
     setProfile(p);
-    setName(suggestName(p.os.versions[0] ?? p.name, machines));
+    const tx = profText(p, lang);
+    setName(suggestName(tx.versions[0] ?? tx.name, machines));
     setDiskGb(p.defaultDiskGb);
     setMediaPath(null);
     setRomPath(null);
@@ -74,7 +80,7 @@ export function Wizard({
   const create = () => {
     if (!profile) return;
     setBusy(true);
-    const input: CreateMachineInput = { profileId: profile.id, name: name.trim() || profile.name, diskGb, mediaPath, romPath };
+    const input: CreateMachineInput = { profileId: profile.id, name: name.trim() || profText(profile, lang).name, diskGb, mediaPath, romPath };
     api
       .createMachine(input)
       .then((m) => {
@@ -87,6 +93,7 @@ export function Wizard({
   };
 
   const steps = [t.wzStep1, t.wzStep2, t.wzStep3];
+  const ptx = profile ? profText(profile, lang) : null;
   const isConsole = profile?.engine === 'libretro';
 
   return (
@@ -123,28 +130,29 @@ export function Wizard({
               {list.length === 0 && <div className="note">{t.wzNoProfiles}</div>}
               {list.map((p) => {
                 const info = engineInfo(p);
+                const tx = profText(p, lang);
                 return (
                   <button key={p.id} className="wz-card" onClick={() => pick(p)}>
                     <div className="wz-card-head">
-                      <span className="wz-card-name">{p.name}</span>
+                      <span className="wz-card-name">{tx.name}</span>
                       <span className="chip mini">{p.epoch > 0 ? p.epoch : t.wzEpochNow}</span>
                       {p.tier === 'nested' && <span className="badge">nested</span>}
                       {p.beta && <span className="chip mini warn">{t.wzBeta}</span>}
                       {info && !info.ok && (
-                        <span className="chip mini bad" title={info.hint}>
+                        <span className="chip mini bad" title={trBackend(info.hint, lang)}>
                           <IconWarn size={10} /> {info.engine}
                         </span>
                       )}
                     </div>
-                    <div className="wz-card-family">{p.os.family}</div>
+                    <div className="wz-card-family">{tx.family}</div>
                     <div className="wz-card-versions">
-                      {p.os.versions.map((v) => (
+                      {tx.versions.map((v) => (
                         <span key={v} className="chip mini dim">
                           {v}
                         </span>
                       ))}
                     </div>
-                    <div className="wz-card-hint">{p.notes || p.os.hint}</div>
+                    <div className="wz-card-hint">{tx.notes || tx.hint}</div>
                   </button>
                 );
               })}
@@ -152,15 +160,15 @@ export function Wizard({
           </>
         )}
 
-        {step === 1 && profile && (
+        {step === 1 && profile && ptx && (
           <>
             <div className="wz-selected">
-              <span className="wz-card-name">{profile.name}</span>
-              <span className="dim"> · {profile.os.family}</span>
+              <span className="wz-card-name">{ptx.name}</span>
+              <span className="dim"> · {ptx.family}</span>
             </div>
             {engineMissing && (
               <div className="note warn">
-                <IconWarn size={12} /> {t.wzEngineMissing(engineInfo(profile)?.binary ?? profile.engine, engineInfo(profile)?.hint ?? '')}
+                <IconWarn size={12} /> {t.wzEngineMissing(engineInfo(profile)?.binary ?? profile.engine, trBackend(engineInfo(profile)?.hint ?? '', lang))}
               </div>
             )}
             {profile.tier === 'nested' && !nested && <div className="note">{t.wzNestedProfile}</div>}
@@ -210,7 +218,7 @@ export function Wizard({
               </>
             )}
             <div className="note">
-              <strong>{t.wzHint}:</strong> {profile.os.hint}
+              <strong>{t.wzHint}:</strong> {ptx.hint}
             </div>
             {profile.libretro && profile.libretro.bios.length > 0 && (
               <div className="note">
@@ -220,16 +228,16 @@ export function Wizard({
           </>
         )}
 
-        {step === 2 && profile && (
+        {step === 2 && profile && ptx && (
           <>
             <div className="note" style={{ color: 'var(--text)' }}>
               {t.wzSummary}
             </div>
             <dl className="facts">
               <dt>{t.wzName}</dt>
-              <dd>{name.trim() || profile.name}</dd>
+              <dd>{name.trim() || ptx.name}</dd>
               <dt>{t.profile}</dt>
-              <dd>{profile.name}</dd>
+              <dd>{ptx.name}</dd>
               <dt>{t.engine}</dt>
               <dd>{profile.engine === 'qemu' ? t.engineQemu : t.engineLibretro}</dd>
               {!isConsole && (

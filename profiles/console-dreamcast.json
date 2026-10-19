@@ -63,5 +63,15 @@
       "chd",
       "cue"
     ]
+  },
+  "en": {
+    "name": "Sega Dreamcast",
+    "family": "Sega Dreamcast",
+    "versions": [
+      "Dreamcast",
+      "NAOMI (limited)"
+    ],
+    "hint": "Put dc/dc_boot.bin and dc/dc_flash.bin into the system folder. Requires OpenGL.",
+    "notes": ""
   }
 }

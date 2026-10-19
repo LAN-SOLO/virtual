@@ -54,5 +54,17 @@
   "notes": "Standard-VGA mit VESA, AC97-Audio, RTL8139.",
   "defaultDiskGb": 16,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "PC 2003 — Pentium 4",
+    "family": "Windows XP / 2003",
+    "versions": [
+      "Windows XP",
+      "Windows Server 2003",
+      "ReactOS",
+      "Linux 2.6"
+    ],
+    "hint": "Emulated without an accelerator (TCG) — on x86 hosts virtual can use the accelerator once the guest runs.",
+    "notes": "Standard VGA with VESA, AC97 audio, RTL8139."
+  }
 }

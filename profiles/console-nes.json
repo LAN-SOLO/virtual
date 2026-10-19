@@ -61,5 +61,16 @@
       "unf",
       "unif"
     ]
+  },
+  "en": {
+    "name": "NES / Famicom",
+    "family": "Nintendo Entertainment System",
+    "versions": [
+      "NES",
+      "Famicom",
+      "Famicom Disk System"
+    ],
+    "hint": "Insert the ROM as .nes. FDS needs disksys.rom in the system folder.",
+    "notes": ""
   }
 }

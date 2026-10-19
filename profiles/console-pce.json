@@ -63,5 +63,17 @@
       "ccd",
       "chd"
     ]
+  },
+  "en": {
+    "name": "PC Engine / TurboGrafx",
+    "family": "PC Engine",
+    "versions": [
+      "PC Engine",
+      "TurboGrafx-16",
+      "SuperGrafx",
+      "PC Engine CD"
+    ],
+    "hint": "CD games need syscard3.pce in the system folder.",
+    "notes": ""
   }
 }

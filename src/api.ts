@@ -139,6 +139,14 @@ export interface ProfileLibretro {
   bios: string[];
   extensions: string[];
 }
+/** Englische Anzeigetexte eines Profils (leer = deutscher Text). */
+export interface ProfileText {
+  name: string;
+  family: string;
+  versions: string[];
+  hint: string;
+  notes: string;
+}
 export interface Profile {
   id: string;
   name: string;
@@ -162,6 +170,7 @@ export interface Profile {
   defaultDiskGb: number;
   needsRom: boolean;
   libretro: ProfileLibretro | null;
+  en?: ProfileText | null;
 }
 
 export interface Settings {
@@ -268,7 +277,8 @@ export const api = {
     listen<StatusEvent>('machine-status', (ev) => cb(ev.payload)),
   onLog: (cb: (e: LogEvent) => void): Promise<UnlistenFn> => listen<LogEvent>('machine-log', (ev) => cb(ev.payload)),
   /** Fenster schließen / Beenden, während Maschinen laufen. */
-  onCloseRequested: (cb: () => void): Promise<UnlistenFn> => listen('close-requested', () => cb()),
+  onCloseRequested: (cb: (e: { busy: boolean }) => void): Promise<UnlistenFn> =>
+    listen<{ busy?: boolean } | null>('close-requested', (ev) => cb({ busy: !!ev.payload?.busy })),
 };
 
 export const defaultSettings: Settings = {

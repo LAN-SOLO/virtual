@@ -57,8 +57,21 @@ export function baseName(path: string): string {
   return i >= 0 ? path.slice(i + 1) : path;
 }
 
-export function profileName(profiles: Profile[], m: Machine): string {
-  return profiles.find((p) => p.id === m.profileId)?.name ?? m.profileId;
+export function profileName(profiles: Profile[], m: Machine, lang: Lang = 'de'): string {
+  const p = profiles.find((x) => x.id === m.profileId);
+  return p ? profText(p, lang).name : m.profileId;
+}
+
+/** Anzeigetexte eines Profils in der Sprache der Oberfläche (Profile sind deutsch, `en` überlagert). */
+export function profText(p: Profile, lang: Lang) {
+  const en = lang === 'en' ? p.en : null;
+  return {
+    name: en?.name || p.name,
+    family: en?.family || p.os.family,
+    versions: en?.versions && en.versions.length === p.os.versions.length ? en.versions : p.os.versions,
+    hint: en?.hint || p.os.hint,
+    notes: en?.notes || p.notes,
+  };
 }
 
 /** Auswahllisten für die Hardware-Ansicht — sinnvolle QEMU-Gerätenamen je Bereich. */

@@ -50,5 +50,15 @@
   "notes": "Emuliert (TCG) auf jedem Host.",
   "defaultDiskGb": 16,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "RISC-V — Linux/BSD",
+    "family": "RISC-V 64",
+    "versions": [
+      "Linux (riscv64)",
+      "FreeBSD (riscv64)"
+    ],
+    "hint": "Kernel and rootfs image as a disk; the OpenSBI firmware comes with the QEMU package.",
+    "notes": "Emulated (TCG) on every host."
+  }
 }

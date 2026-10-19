@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { EngineInfo, Settings, UpdateInfo, api } from '../api';
 import { Dict } from '../i18n';
+import { trBackend } from '../backendText';
 import { IconCheck, IconExternalLink, IconWarn } from '../icons';
 
 export const APP_VERSION = '1.0.0';
@@ -20,6 +21,8 @@ export function SettingsModal({
   onLive,
   onRescan,
   onFail,
+  installing,
+  onInstallUpdate,
 }: {
   settings: Settings;
   engines: EngineInfo[];
@@ -29,12 +32,14 @@ export function SettingsModal({
   onLive: (s: Settings) => void;
   onRescan: (s: Settings) => Promise<void>;
   onFail: (e: unknown) => void;
+  installing: boolean;
+  onInstallUpdate: () => void;
 }) {
   const [tab, setTab] = useState<SetTab>('general');
   const [s, setS] = useState<Settings>({ ...settings });
   const [updState, setUpdState] = useState<'idle' | 'checking' | 'none' | 'error'>('idle');
+  const [updError, setUpdError] = useState('');
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
-  const [installing, setInstalling] = useState(false);
   const [dataPath, setDataPath] = useState('');
   const [scanning, setScanning] = useState(false);
 
@@ -77,7 +82,10 @@ export function SettingsModal({
           setUpdState('idle');
         } else setUpdState('none');
       })
-      .catch(() => setUpdState('error'));
+      .catch((e) => {
+        setUpdError(trBackend(e, s.language));
+        setUpdState('error');
+      });
   };
 
   const tabs: [SetTab, string][] = [
@@ -177,7 +185,7 @@ export function SettingsModal({
                   </span>
                   {!e.ok && e.hint && (
                     <span className="enghint mono">
-                      {t.engineInstall}: {e.hint}
+                      {t.engineInstall}: {trBackend(e.hint, s.language)}
                     </span>
                   )}
                 </div>
@@ -231,16 +239,14 @@ export function SettingsModal({
                   <button
                     className="primary"
                     disabled={installing}
-                    onClick={() => {
-                      setInstalling(true);
-                      api.installUpdate().catch(() => setInstalling(false));
-                    }}
+                    onClick={onInstallUpdate}
                   >
                     {installing ? t.updateInstalling : t.installUpdate}
                   </button>
                 </>
               )}
             </div>
+            {updState === 'error' && updError && <div className="note mono upd-err">{updError}</div>}
             <div className="sep" />
             <div className="btnrow" style={{ justifyContent: 'flex-start' }}>
               <button onClick={() => api.openPath(WEBSITE).catch(onFail)}>

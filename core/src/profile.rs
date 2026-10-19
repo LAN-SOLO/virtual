@@ -16,6 +16,18 @@ pub struct ProfileOs {
     pub hint: String,
 }
 
+/// Englische Fassung der Anzeigetexte (die Standardtexte sind deutsch).
+/// Leere Felder fallen auf den deutschen Text zurück.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ProfileText {
+    pub name: String,
+    pub family: String,
+    pub versions: Vec<String>,
+    pub hint: String,
+    pub notes: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ProfileLibretro {
@@ -56,6 +68,9 @@ pub struct Profile {
     /// Firmware-ROM nötig (q800, mac99 optional) — Nutzer liefert die Datei.
     pub needs_rom: bool,
     pub libretro: Option<ProfileLibretro>,
+    /// Englische Anzeigetexte (Assistent, Übersicht bei englischer Oberfläche).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub en: Option<ProfileText>,
 }
 
 impl Profile {
@@ -138,7 +153,8 @@ pub fn builtin_profiles() -> Vec<Profile> {
 pub fn load_profiles(user_json: &[String]) -> Vec<Profile> {
     let mut all = builtin_profiles();
     for text in user_json {
-        if let Ok(p) = serde_json::from_str::<Profile>(text) {
+        // Im Windows-Editor gespeicherte Profile beginnen mit einem BOM
+        if let Ok(p) = serde_json::from_str::<Profile>(crate::fsutil::strip_bom(text)) {
             if p.id.is_empty() {
                 continue;
             }
@@ -201,6 +217,29 @@ mod tests {
         let all = load_profiles(&[serde_json::to_string(&p).unwrap()]);
         assert_eq!(all.iter().filter(|x| x.id == p.id).count(), 1);
         assert_eq!(all.iter().find(|x| x.id == p.id).unwrap().name, "eigen");
+    }
+
+    #[test]
+    fn user_profile_with_bom_is_accepted() {
+        let mut p = builtin_profiles().remove(0);
+        p.id = "eigen-bom".into();
+        let text = format!("\u{feff}{}", serde_json::to_string(&p).unwrap());
+        assert!(load_profiles(&[text]).iter().any(|x| x.id == "eigen-bom"));
+    }
+
+    #[test]
+    fn every_builtin_profile_has_english_texts() {
+        for p in builtin_profiles() {
+            let en = p.en.as_ref().unwrap_or_else(|| panic!("{}: englische Texte fehlen", p.id));
+            assert!(!en.name.is_empty() && !en.family.is_empty() && !en.hint.is_empty(), "{}", p.id);
+            assert_eq!(en.versions.len(), p.os.versions.len(), "{}: Versionsliste EN/DE ungleich lang", p.id);
+            assert_eq!(en.notes.is_empty(), p.notes.is_empty(), "{}: notes EN/DE", p.id);
+            for t in [&en.name, &en.family, &en.hint, &en.notes].into_iter().chain(en.versions.iter()) {
+                for w in [" und ", " oder ", "braucht", "einlegen", "Ordner", "nicht ", "eingeschränkt", "diverse", "ältere"] {
+                    assert!(!t.contains(w), "{}: deutsches Wort „{w}“ im englischen Text: {t}", p.id);
+                }
+            }
+        }
     }
 
     #[test]

@@ -59,5 +59,14 @@
       "pbp",
       "elf"
     ]
+  },
+  "en": {
+    "name": "PlayStation Portable",
+    "family": "Sony PSP",
+    "versions": [
+      "PSP"
+    ],
+    "hint": "Games as .iso/.cso. The core needs its assets folder (PPSSPP) in the system folder.",
+    "notes": ""
   }
 }

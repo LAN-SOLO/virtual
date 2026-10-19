@@ -384,9 +384,38 @@ fn with_qmp<T>(r: &Running, f: impl FnOnce(&mut QmpClient) -> Result<T, String>)
     }
 }
 
+/// Steuerkommandos (Pause, Reset, Stopp, Statusabfrage) warten höchstens `wait`
+/// auf die QMP-Verbindung. Hält ein langer Snapshot (savevm/loadvm, bis 15 min)
+/// sie fest, gibt es eine klare Meldung statt eines hängenden Knopfs — und die
+/// Statusabfrage alle 4 s stapelt keine blockierten Threads auf.
+fn with_qmp_wait<T>(r: &Running, wait: Duration, f: impl FnOnce(&mut QmpClient) -> Result<T, String>) -> Result<T, String> {
+    let Control::Qemu(slot) = &r.control else {
+        return Err("Keine QEMU-Maschine".into());
+    };
+    let deadline = Instant::now() + wait;
+    loop {
+        match slot.try_lock() {
+            Ok(mut guard) => {
+                let c = guard.as_mut().ok_or("QMP-Steuerung (noch) nicht verbunden")?;
+                return f(c);
+            }
+            Err(std::sync::TryLockError::Poisoned(p)) => {
+                let mut guard = p.into_inner();
+                let c = guard.as_mut().ok_or("QMP-Steuerung (noch) nicht verbunden")?;
+                return f(c);
+            }
+            Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            Err(std::sync::TryLockError::WouldBlock) => return Err(QMP_BUSY.into()),
+        }
+    }
+}
+
+pub const QMP_BUSY: &str = "Engine beschäftigt (Snapshot läuft) — bitte warten";
+const CONTROL_WAIT: Duration = Duration::from_secs(3);
+
 /// Zustand frisch aus QEMU holen (query-status).
 pub fn refresh(r: &Running) {
-    if let Ok(v) = with_qmp(r, |c| c.send(&qmp::query_status())) {
+    if let Ok(v) = with_qmp_wait(r, Duration::ZERO, |c| c.send(&qmp::query_status())) {
         let s = qmp::status_from_return(&v);
         let mapped = match s.as_str() {
             "paused" | "prelaunch" | "suspended" => "paused",
@@ -398,33 +427,40 @@ pub fn refresh(r: &Running) {
 }
 
 pub fn pause(r: &Running) -> Result<(), String> {
-    with_qmp(r, |c| c.send(&qmp::stop()))?;
+    with_qmp_wait(r, CONTROL_WAIT, |c| c.send(&qmp::stop()))?;
     r.set_state("paused");
     Ok(())
 }
 
 pub fn resume(r: &Running) -> Result<(), String> {
-    with_qmp(r, |c| c.send(&qmp::cont()))?;
+    with_qmp_wait(r, CONTROL_WAIT, |c| c.send(&qmp::cont()))?;
     r.set_state("running");
     Ok(())
 }
 
 pub fn reset(r: &Running) -> Result<(), String> {
-    with_qmp(r, |c| c.send(&qmp::system_reset())).map(|_| ())
+    with_qmp_wait(r, CONTROL_WAIT, |c| c.send(&qmp::system_reset())).map(|_| ())
 }
 
 /// Sanft: ACPI-Ausschalten, nach 10 s `quit`, danach kill. Hart: sofort `quit` + kill.
 pub fn stop(r: &Running, force: bool) -> Result<(), String> {
     if force {
-        let _ = with_qmp(r, |c| c.send(&qmp::quit()));
-        std::thread::sleep(Duration::from_millis(300));
+        // Hart heißt sofort — auch während ein Snapshot die Steuerung belegt
+        if with_qmp_wait(r, Duration::ZERO, |c| c.send(&qmp::quit())).is_ok() {
+            std::thread::sleep(Duration::from_millis(300));
+        }
         r.kill();
         return Ok(());
     }
-    if with_qmp(r, |c| c.send(&qmp::system_powerdown())).is_err() {
+    match with_qmp_wait(r, CONTROL_WAIT, |c| c.send(&qmp::system_powerdown())) {
+        Ok(_) => {}
+        // Snapshot läuft: nicht hart abbrechen, sondern melden (Stopp erzwingen geht)
+        Err(e) if e == QMP_BUSY => return Err(e),
         // ohne Steuerung bleibt nur der harte Weg
-        r.kill();
-        return Ok(());
+        Err(_) => {
+            r.kill();
+            return Ok(());
+        }
     }
     let child = r.child.clone();
     let control = match &r.control {
@@ -623,6 +659,41 @@ mod qmp_client_tests {
         let mut c = client(replies, 1);
         assert_eq!(c.hmp("savevm vs-x").unwrap(), "");
         assert_eq!(*c.state.lock().unwrap(), "paused", "Events dazwischen werden verarbeitet");
+    }
+
+    fn running_with(client: Option<QmpClient>) -> Running {
+        let child = if cfg!(windows) { command("cmd").args(["/C", "exit"]).spawn() } else { command("true").spawn() };
+        Running {
+            child: Arc::new(Mutex::new(child.unwrap())),
+            pid: 0,
+            state: Arc::new(Mutex::new("running".into())),
+            error: Arc::new(Mutex::new(None)),
+            since: now_iso(),
+            started: Instant::now(),
+            log: Arc::new(Mutex::new(VecDeque::new())),
+            control: Control::Qemu(Arc::new(Mutex::new(client))),
+            helpers: Arc::new(Mutex::new(Vec::new())),
+            sockets: vec![],
+        }
+    }
+
+    #[test]
+    fn control_commands_do_not_hang_behind_a_long_snapshot() {
+        let r = running_with(Some(client("{\"return\": {}, \"id\": \"x\"}\n", 0)));
+        let Control::Qemu(slot) = &r.control else { unreachable!() };
+        let held = slot.lock().unwrap(); // „savevm läuft“
+        let t0 = Instant::now();
+        assert_eq!(with_qmp_wait(&r, Duration::from_millis(200), |c| c.send(&qmp::stop())).unwrap_err(), QMP_BUSY);
+        assert!(t0.elapsed() < Duration::from_secs(2));
+        refresh(&r); // kehrt sofort zurück, ändert nichts
+        assert_eq!(r.state(), "running");
+        // Stopp erzwingen wartet nicht auf die Steuerung
+        let t0 = Instant::now();
+        stop(&r, true).unwrap();
+        assert!(t0.elapsed() < Duration::from_secs(2));
+        drop(held);
+        let r = running_with(None);
+        assert!(pause(&r).unwrap_err().contains("nicht verbunden"));
     }
 
     #[test]

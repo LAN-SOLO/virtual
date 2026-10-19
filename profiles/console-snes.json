@@ -60,5 +60,15 @@
       "fig",
       "swc"
     ]
+  },
+  "en": {
+    "name": "Super Nintendo",
+    "family": "Super Nintendo / Super Famicom",
+    "versions": [
+      "SNES",
+      "Super Famicom"
+    ],
+    "hint": "Insert the ROM as .sfc or .smc.",
+    "notes": ""
   }
 }

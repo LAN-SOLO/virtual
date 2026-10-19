@@ -12,6 +12,7 @@ import {
   api,
 } from '../api';
 import { Dict, Lang } from '../i18n';
+import { trBackend, trLines, trLogLine } from '../backendText';
 import { IconCamera, IconFolder, IconPause, IconPlay, IconReset, IconStop, IconTrash, IconWarn } from '../icons';
 import {
   AUDIO_OPTIONS,
@@ -27,6 +28,7 @@ import {
   mayNeedConversion,
   fmtDateTime,
   fmtMem,
+  profText,
   stateLabel,
 } from '../util';
 
@@ -147,13 +149,15 @@ export function MachineDetail({
     if (typeof sel !== 'string') return;
     const converts = kind === 'cdrom' && mayNeedConversion(sel);
     if (converts) onToast(t.converting);
+    setBusy(true);
     api
       .attachMedia(machine.id, kind, sel, slot)
       .then((m) => {
         onMachine(m);
         if (converts) onToast(t.converted);
       })
-      .catch(onFail);
+      .catch(onFail)
+      .finally(() => setBusy(false));
   };
 
   const createSnapshot = () => {
@@ -193,7 +197,7 @@ export function MachineDetail({
     <div className="view">
       <div className="viewbar">
         <h1>{machine.name}</h1>
-        <span className="sub">{profile?.name ?? machine.profileId}</span>
+        <span className="sub">{profile ? profText(profile, lang).name : machine.profileId}</span>
         <span className="chip mini">{categoryLabel(t, machine.category)}</span>
         <span className={`chip mini state-${st}`}>
           <span className={`led ${st}`} /> {stateLabel(t, st)}
@@ -238,7 +242,7 @@ export function MachineDetail({
       </div>
       {status.error && (
         <div className="errbar">
-          <IconWarn size={12} /> {status.error}
+          <IconWarn size={12} /> {trBackend(status.error, lang)}
         </div>
       )}
       <div className="tabs detail-tabs">
@@ -315,7 +319,7 @@ export function MachineDetail({
               </span>
             </div>
             <div className="fieldlabel">{t.commandPreview}</div>
-            <pre className="cmd">{command || '—'}</pre>
+            <pre className="cmd">{command ? trLines(command, lang) : '—'}</pre>
             <div className="note">{t.commandHint}</div>
           </>
         )}
@@ -614,18 +618,18 @@ export function MachineDetail({
             ))}
             <div className="btnrow" style={{ justifyContent: 'flex-start' }}>
               {isConsole ? (
-                <button disabled={running} onClick={() => attach('rom', 0)}>
+                <button disabled={running || busy} onClick={() => attach('rom', 0)}>
                   {t.attachGame}
                 </button>
               ) : (
                 <>
-                  <button disabled={running} onClick={() => attach('cdrom', machine.media.filter((x) => x.kind === 'cdrom').length)}>
+                  <button disabled={running || busy} onClick={() => attach('cdrom', machine.media.filter((x) => x.kind === 'cdrom').length)}>
                     {t.attachCd}
                   </button>
-                  <button disabled={running} onClick={() => attach('floppy', machine.media.some((x) => x.kind === 'floppy' && x.slot === 0) ? 1 : 0)}>
+                  <button disabled={running || busy} onClick={() => attach('floppy', machine.media.some((x) => x.kind === 'floppy' && x.slot === 0) ? 1 : 0)}>
                     {t.attachFloppy}
                   </button>
-                  <button disabled={running} onClick={() => attach('rom', 0)}>
+                  <button disabled={running || busy} onClick={() => attach('rom', 0)}>
                     {t.attachRom}
                   </button>
                 </>
@@ -824,10 +828,12 @@ export function MachineDetail({
                   title={t.delete}
                   onClick={async () => {
                     if (!(await onConfirm(t.confirmDeleteSnap(s.name)))) return;
+                    setBusy(true);
                     api
                       .deleteSnapshot(machine.id, s.id)
                       .then(() => setSnapshots((l) => l.filter((x) => x.id !== s.id)))
-                      .catch(onFail);
+                      .catch(onFail)
+                      .finally(() => setBusy(false));
                   }}
                 >
                   <IconTrash size={11} />
@@ -850,14 +856,14 @@ export function MachineDetail({
               </button>
             </div>
             <pre className="log" ref={logRef}>
-              {logLines.length === 0 ? t.logEmpty : logLines.join('\n')}
+              {logLines.length === 0 ? t.logEmpty : logLines.map((l) => trLogLine(l, lang)).join('\n')}
             </pre>
           </>
         )}
 
         <div className="sep" style={{ marginTop: 32 }} />
         <div className="btnrow" style={{ justifyContent: 'flex-start' }}>
-          <button className="danger ghost" disabled={running} onClick={() => onDelete(machine)}>
+          <button className="danger ghost" disabled={running || busy} onClick={() => onDelete(machine)}>
             <IconTrash size={11} /> {t.deleteMachine}
           </button>
         </div>
@@ -869,7 +875,16 @@ export function MachineDetail({
             <h2>{t.newSnapshot}</h2>
             <label className="field">
               <span>{t.snapName}</span>
-              <input type="text" value={snapName} autoFocus onChange={(e) => setSnapName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createSnapshot()} />
+              <input
+                type="text"
+                value={snapName}
+                autoFocus
+                onChange={(e) => setSnapName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createSnapshot();
+                  if (e.key === 'Escape' && !busy) setSnapModal(false);
+                }}
+              />
             </label>
             <label className="field">
               <span>{t.snapNote}</span>

@@ -16,7 +16,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     }
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, bytes).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("Umbenennen fehlgeschlagen: {e}"))
+    // Windows: Virenscanner/OneDrive halten die frische Datei kurz offen → wiederholen
+    virtual_core::fsutil::rename_retry(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Umbenennen fehlgeschlagen: {e}")
+    })
 }
 
 /// Ordnername aus dem Maschinennamen: klein, ASCII, Bindestriche.
@@ -49,6 +53,9 @@ pub fn slugify(name: &str) -> String {
     let trimmed = capped.trim_end_matches('-').to_string();
     if trimmed.is_empty() {
         "maschine".into()
+    } else if virtual_core::fsutil::is_windows_reserved(&trimmed) {
+        // „CON“, „NUL“, „COM1“ … lassen sich unter Windows nicht als Ordner anlegen
+        format!("{trimmed}-vm")
     } else {
         trimmed
     }
@@ -73,7 +80,8 @@ pub fn create_machine_dir(base: &Path, name: &str) -> Result<PathBuf, String> {
 
 pub fn load_machine(dir: &Path) -> Option<Machine> {
     let text = std::fs::read_to_string(dir.join(MACHINE_FILE)).ok()?;
-    serde_json::from_str(&text).ok()
+    // von Hand im Windows-Editor bearbeitet → BOM
+    serde_json::from_str(virtual_core::fsutil::strip_bom(&text)).ok()
 }
 
 pub fn save_machine(dir: &Path, m: &Machine) -> Result<(), String> {
@@ -104,7 +112,7 @@ pub fn find_dir(base: &Path, id: &str) -> Option<PathBuf> {
 pub fn load_snapshots(dir: &Path) -> Vec<Snapshot> {
     std::fs::read_to_string(dir.join(SNAPSHOTS_FILE))
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str(virtual_core::fsutil::strip_bom(&s)).ok())
         .unwrap_or_default()
 }
 
@@ -152,6 +160,11 @@ mod tests {
         assert_eq!(slugify("***"), "maschine");
         assert_eq!(slugify(&"a".repeat(100)).len(), 40);
         assert_eq!(slugify("C:\\Windows\\..\\x"), "c-windows-x", "keine Pfadtrenner im Ordnernamen");
+        assert_eq!(slugify("CON"), "con-vm", "reservierte Windows-Namen");
+        assert_eq!(slugify("nul"), "nul-vm");
+        assert_eq!(slugify("COM1"), "com1-vm");
+        assert_eq!(slugify("Console"), "console");
+        assert_eq!(slugify("Spiel: \"Teil 2\" <Demo>|?*"), "spiel-teil-2-demo", "keine Windows-Sonderzeichen");
     }
 
     #[test]
@@ -176,6 +189,16 @@ mod tests {
         save_snapshots(&d1, &snaps).unwrap();
         assert_eq!(load_snapshots(&d1)[0].tag, "vs-1");
         assert!(load_snapshots(&d2).is_empty());
+
+        // im Windows-Editor gespeichert (BOM) bleibt lesbar
+        let json = std::fs::read_to_string(d1.join(MACHINE_FILE)).unwrap();
+        std::fs::write(d1.join(MACHINE_FILE), format!("\u{feff}{json}")).unwrap();
+        assert_eq!(load_machine(&d1).unwrap().id, "abc");
+        std::fs::write(d1.join(SNAPSHOTS_FILE), format!("\u{feff}{}", serde_json::to_string(&snaps).unwrap())).unwrap();
+        assert_eq!(load_snapshots(&d1).len(), 1);
+        // Machine-Ordner mit gleichem Namen in anderer Schreibweise kollidieren nie (Slug ist klein)
+        let d3 = create_machine_dir(&base, "TEST vm").unwrap();
+        assert!(d3.ends_with("test-vm-3"));
 
         delete(&d1, true).unwrap();
         assert!(!d1.exists());

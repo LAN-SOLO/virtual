@@ -57,5 +57,14 @@
       "a26",
       "bin"
     ]
+  },
+  "en": {
+    "name": "Atari 2600",
+    "family": "Atari 2600",
+    "versions": [
+      "Atari 2600 / VCS"
+    ],
+    "hint": "Insert the ROM as .a26 or .bin.",
+    "notes": ""
   }
 }

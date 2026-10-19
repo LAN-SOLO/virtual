@@ -4,6 +4,7 @@
 
 pub mod argv;
 pub mod detect;
+pub mod fsutil;
 pub mod image;
 pub mod libretro;
 pub mod model;
@@ -11,4 +12,4 @@ pub mod profile;
 pub mod qmp;
 
 pub use model::*;
-pub use profile::{builtin_profiles, load_profiles, Profile, ProfileLibretro, ProfileOs};
+pub use profile::{builtin_profiles, load_profiles, Profile, ProfileLibretro, ProfileOs, ProfileText};

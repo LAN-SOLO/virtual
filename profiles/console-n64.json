@@ -58,5 +58,14 @@
       "n64",
       "v64"
     ]
+  },
+  "en": {
+    "name": "Nintendo 64",
+    "family": "Nintendo 64",
+    "versions": [
+      "Nintendo 64"
+    ],
+    "hint": "Insert the ROM as .z64/.n64/.v64. The core uses OpenGL — the host needs graphics acceleration.",
+    "notes": ""
   }
 }

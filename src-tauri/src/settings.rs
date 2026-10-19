@@ -76,7 +76,7 @@ fn settings_path(config_dir: &std::path::Path) -> PathBuf {
 pub fn load(config_dir: &std::path::Path) -> Settings {
     std::fs::read_to_string(settings_path(config_dir))
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str(virtual_core::fsutil::strip_bom(&s)).ok())
         .unwrap_or_default()
 }
 

@@ -57,5 +57,14 @@
       "gba",
       "agb"
     ]
+  },
+  "en": {
+    "name": "Game Boy Advance",
+    "family": "Game Boy Advance",
+    "versions": [
+      "Game Boy Advance"
+    ],
+    "hint": "gba_bios.bin is optional — without it the core uses its own BIOS replacement.",
+    "notes": ""
   }
 }

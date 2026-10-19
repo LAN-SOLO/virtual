@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EngineInfo, Machine, MachineStatus, Profile, Settings, UpdateInfo, api, defaultSettings } from './api';
 import { dicts, Lang } from './i18n';
+import { trBackend } from './backendText';
 import { Help } from './components/Help';
 import { MachineDetail } from './components/MachineDetail';
 import { SettingsModal } from './components/SettingsModal';
@@ -69,13 +70,16 @@ export default function App() {
   const lang: Lang = settings?.language ?? 'de';
   const t = dicts[lang];
   const nested = settings?.nested ?? false;
+  const langRef = useRef(lang);
+  langRef.current = lang;
 
   const showToast = useCallback((msg: string, isError = false) => {
     setToast(msg);
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), isError ? 6000 : 2200);
   }, []);
-  const fail = useCallback((e: unknown) => showToast(String(e), true), [showToast]);
+  // Backend-Meldungen sind deutsch — in der Sprache der Oberfläche zeigen
+  const fail = useCallback((e: unknown) => showToast(trBackend(e, langRef.current), true), [showToast]);
 
   // Bestätigung als Promise
   const confirmResolve = useRef<((ok: boolean) => void) | null>(null);
@@ -127,12 +131,16 @@ export default function App() {
             setUpdateAvail(u);
             if (s.autoUpdate) {
               setInstalling(true);
-              api.installUpdate().catch(() => setInstalling(false));
+              api.installUpdate().catch((e) => {
+                setInstalling(false);
+                fail(e);
+              });
             }
           })
           .catch(() => {});
       })
-      .catch(() => setSettings({ ...defaultSettings }));
+      // Ohne Backend-Einstellungen: Sprache des Systems (macOS/Windows setzen LANG nicht)
+      .catch(() => setSettings({ ...defaultSettings, language: (navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en' }));
     api.listProfiles().then(setProfiles).catch(fail);
     loadMachines();
     loadStatus();
@@ -146,7 +154,7 @@ export default function App() {
     api
       .onStatus((e) => {
         setStatus((s) => ({ ...s, [e.id]: { ...(s[e.id] ?? { id: e.id, pid: null, since: null }), id: e.id, state: e.state, error: e.error } }));
-        if (e.state === 'error' && e.error) showToast(e.error, true);
+        if (e.state === 'error' && e.error) showToast(trBackend(e.error, langRef.current), true);
       })
       .then((f) => (offStatus = f))
       .catch(() => {});
@@ -173,9 +181,11 @@ export default function App() {
   useEffect(() => {
     let off: (() => void) | undefined;
     api
-      .onCloseRequested(async () => {
+      .onCloseRequested(async ({ busy }) => {
         const n = Object.values(statusRef.current).filter((s) => s.state !== 'stopped' && s.state !== 'error').length;
-        if (await onConfirm(tRef.current.confirmQuit(Math.max(1, n)))) api.quitApp().catch(fail);
+        // Nur ein Vorgang (z. B. Snapshot einer gestoppten Maschine) läuft: das sagen
+        const text = n === 0 && busy ? tRef.current.confirmQuitBusy : tRef.current.confirmQuit(Math.max(1, n));
+        if (await onConfirm(text)) api.quitApp().catch(fail);
       })
       .then((f) => (off = f))
       .catch(() => {});
@@ -271,6 +281,17 @@ export default function App() {
       .catch(fail);
   };
 
+  // Update installieren: laufende Maschinen werden dabei beendet — vorher fragen
+  const installUpdate = async () => {
+    const n = Object.values(statusRef.current).filter((s) => s.state !== 'stopped' && s.state !== 'error').length;
+    if (n > 0 && !(await onConfirm(t.confirmUpdateRunning(n)))) return;
+    setInstalling(true);
+    api.installUpdate().catch((e) => {
+      setInstalling(false);
+      fail(e);
+    });
+  };
+
   const confirmDangerous = useCallback(
     (text: string) => (settings?.confirmDangerous === false ? Promise.resolve(true) : onConfirm(text)),
     [settings, onConfirm]
@@ -288,8 +309,15 @@ export default function App() {
         }
         return;
       }
+      if (e.key === 'Escape' && confirm) {
+        // Nachfrage zuerst schließen — der Dialog darunter (Einstellungen) bleibt offen
+        settleConfirm(false);
+        return;
+      }
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Handbuch offen: es schließt selbst mit Esc; n/? nicht hinter ihm auslösen
+      if (document.querySelector('.hlp-overlay')) return;
       if (showSettings || showWizard || confirm) {
         if (e.key === 'Escape') {
           if (showSettings) {
@@ -397,6 +425,7 @@ export default function App() {
           }}
           onClose={() => setShowWizard(false)}
           onFail={fail}
+          lang={lang}
         />
       )}
 
@@ -417,6 +446,8 @@ export default function App() {
             await detect();
           }}
           onFail={fail}
+          installing={installing}
+          onInstallUpdate={installUpdate}
         />
       )}
 
@@ -439,10 +470,7 @@ export default function App() {
           <button
             className="primary"
             disabled={installing}
-            onClick={() => {
-              setInstalling(true);
-              api.installUpdate().catch(() => setInstalling(false));
-            }}
+            onClick={installUpdate}
           >
             {installing ? t.updateInstalling : t.updateInstall}
           </button>

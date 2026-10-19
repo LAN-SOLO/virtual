@@ -62,5 +62,15 @@
       "nds",
       "dsi"
     ]
+  },
+  "en": {
+    "name": "Nintendo DS",
+    "family": "Nintendo DS",
+    "versions": [
+      "Nintendo DS",
+      "DSi (limited)"
+    ],
+    "hint": "Put bios7.bin, bios9.bin and firmware.bin into the system folder.",
+    "notes": ""
   }
 }

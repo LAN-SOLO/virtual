@@ -51,5 +51,16 @@
   "notes": "Emuliert (TCG).",
   "defaultDiskGb": 8,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "MIPS — Malta",
+    "family": "MIPS 32",
+    "versions": [
+      "Linux (mips)",
+      "NetBSD (evbmips)",
+      "Plan 9 (mips, experimental)"
+    ],
+    "hint": "Malta reference board; the kernel is loaded directly (-kernel) or booted from the emulated IDE disk.",
+    "notes": "Emulated (TCG)."
+  }
 }

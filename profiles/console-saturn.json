@@ -62,5 +62,14 @@
       "chd",
       "m3u"
     ]
+  },
+  "en": {
+    "name": "Sega Saturn",
+    "family": "Sega Saturn",
+    "versions": [
+      "Saturn"
+    ],
+    "hint": "Put sega_101.bin and mpr-17933.bin into the system folder. CPU-heavy — a recent host is recommended.",
+    "notes": ""
   }
 }

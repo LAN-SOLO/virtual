@@ -53,5 +53,16 @@
   "notes": "Firmware AAVMF (edk2-aarch64) wird aus dem QEMU-Paket verwendet.",
   "defaultDiskGb": 64,
   "needsRom": false,
-  "libretro": null
+  "libretro": null,
+  "en": {
+    "name": "ARM — current (UEFI)",
+    "family": "ARM64 systems",
+    "versions": [
+      "Windows 11 ARM",
+      "Linux (aarch64)",
+      "FreeBSD (aarch64)"
+    ],
+    "hint": "Insert an ISO for aarch64. Virtualized on Apple Silicon (HVF), emulated on Intel/AMD.",
+    "notes": "AAVMF firmware (edk2-aarch64) is taken from the QEMU package."
+  }
 }

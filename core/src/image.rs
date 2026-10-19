@@ -56,8 +56,21 @@ pub const CD_EXTENSIONS: &[&str] = &["iso", "nrg", "bin", "cue", "mdf", "mds", "
 
 /// Ziel-Dateiname der Wandlung im Maschinenordner: `<stem>.iso`.
 pub fn iso_name_for(src: &Path) -> String {
+    format!("{}.iso", iso_stem_for(src))
+}
+
+/// Dateiname der gewandelten ISO ohne Endung — auf 80 Zeichen gekürzt: Der
+/// Maschinenordner liegt unter Windows tief in AppData, ein langer Abbildname
+/// risse sonst die 260-Zeichen-Grenze (MAX_PATH) alter Programme und von QEMU.
+pub fn iso_stem_for(src: &Path) -> String {
     let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "image".into());
-    format!("{stem}.iso")
+    let short: String = stem.chars().take(80).collect();
+    let short = short.trim_end_matches([' ', '.']).to_string();
+    if short.is_empty() {
+        "image".into()
+    } else {
+        short
+    }
 }
 
 /// Analysiert ein Abbild ohne es zu wandeln.
@@ -152,8 +165,35 @@ fn msf_frames(s: &str) -> Option<u64> {
     Some(m * 60 * 75 + sec * 75 + f)
 }
 
+/// Datendatei einer CUE auflösen. Unter Windows angelegte CUEs nennen Unterordner
+/// mit `\\`, Brennprogramme schreiben Dateinamen gern in anderer Schreibweise
+/// (TRACK01.BIN neben track01.bin) — unter macOS/Linux sonst „Datendatei fehlt“.
+fn cue_data_path(dir: &Path, name: &str) -> PathBuf {
+    let p = Path::new(name);
+    let direct = if p.is_absolute() { p.to_path_buf() } else { dir.join(p) };
+    if direct.is_file() {
+        return direct;
+    }
+    let normalized = name.replace('\\', "/");
+    let rel = Path::new(&normalized);
+    if !rel.is_absolute() && dir.join(rel).is_file() {
+        return dir.join(rel);
+    }
+    // Nur der Dateiname, ohne Rücksicht auf Groß-/Kleinschreibung, im Ordner der CUE
+    let file = normalized.rsplit('/').next().unwrap_or(&normalized).to_lowercase();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            if e.file_name().to_string_lossy().to_lowercase() == file && e.path().is_file() {
+                return e.path();
+            }
+        }
+    }
+    direct
+}
+
 fn parse_cue(path: &Path) -> Result<Analysis, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // BOM (Windows-Editor) und Windows-1252-Umlaute in Dateinamen vertragen
+    let text = crate::fsutil::read_text_lossless(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut file: Option<PathBuf> = None;
     let mut mode: Option<(u32, u32)> = None;
@@ -170,8 +210,7 @@ fn parse_cue(path: &Path) -> Result<Analysis, String> {
             "FILE" => {
                 if file.is_none() {
                     let name = rest.rsplit_once(' ').map(|(n, _)| n).unwrap_or(rest).trim().trim_matches('"');
-                    let p = Path::new(name);
-                    file = Some(if p.is_absolute() { p.to_path_buf() } else { dir.join(p) });
+                    file = Some(cue_data_path(dir, name));
                 }
             }
             "TRACK" => {
@@ -383,16 +422,27 @@ pub fn write_iso(analysis: &Analysis, dst: &Path) -> Result<Report, String> {
         if src.read_exact(&mut sector).is_err() {
             break;
         }
-        out.write_all(&sector[off..off + ISO_SECTOR as usize]).map_err(|e| e.to_string())?;
+        if let Err(e) = out.write_all(&sector[off..off + ISO_SECTOR as usize]) {
+            drop(out);
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!("{}: {e}", tmp.display()));
+        }
         written += 1;
     }
-    out.flush().map_err(|e| e.to_string())?;
+    let flushed = out.flush().map_err(|e| e.to_string());
     drop(out);
+    if let Err(e) = flushed {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     if written == 0 {
         let _ = std::fs::remove_file(&tmp);
         return Err("Abbild enthält keine vollständigen Sektoren".into());
     }
-    std::fs::rename(&tmp, dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+    crate::fsutil::rename_retry(&tmp, dst).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("{}: {e}", dst.display())
+    })?;
     Ok(Report { kind: analysis.kind, sectors: written, layout })
 }
 
@@ -562,6 +612,38 @@ mod tests {
         // Audio zuerst → Fehler
         std::fs::write(&cue, "FILE \"game.bin\" BINARY\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n").unwrap();
         assert!(analyze(&cue).is_err());
+    }
+
+    #[test]
+    fn long_image_names_are_shortened() {
+        let long = format!("/x/{}.nrg", "Ä".repeat(200));
+        let name = iso_name_for(Path::new(&long));
+        assert_eq!(name.chars().count(), 84);
+        assert!(name.ends_with(".iso"));
+        assert_eq!(iso_name_for(Path::new("/x/Win 98, DE.bin")), "Win 98, DE.iso");
+        assert_eq!(iso_name_for(Path::new("/x/disc. .cue")), "disc.iso", "kein Punkt/Leerzeichen am Ende (Windows)");
+    }
+
+    #[test]
+    fn windows_cue_with_bom_codepage_backslash_and_case() {
+        let d = tempdir("windows_cue");
+        let data = iso_data();
+        std::fs::create_dir_all(d.join("Disc 1")).unwrap();
+        // Dateiname mit Umlaut und Leerzeichen, Unterordner, andere Schreibweise
+        std::fs::write(d.join("Disc 1").join("Spiel für Jürgen.bin"), raw_sectors(&data, 1)).unwrap();
+        let cue = d.join("spiel.cue");
+        let mut text = vec![0xEF, 0xBB, 0xBF];
+        text.extend_from_slice(b"FILE \"Disc 1\\Spiel f\xFCr J\xFCrgen.bin\" BINARY\r\n  TRACK 01 MODE1/2352\r\n    INDEX 01 00:00:00\r\n");
+        std::fs::write(&cue, &text).unwrap();
+        let a = analyze(&cue).expect("BOM + Windows-1252 + Backslash");
+        assert!(a.data_file.ends_with("Spiel für Jürgen.bin"), "{}", a.data_file.display());
+        let out = d.join("spiel.iso");
+        assert_eq!(write_iso(&a, &out).unwrap().sectors, 20);
+        assert!(!d.join("spiel.iso.part").exists(), "keine Teildatei übrig");
+
+        std::fs::write(d.join("TRACK01.BIN"), raw_sectors(&data, 1)).unwrap();
+        std::fs::write(&cue, "FILE \"track01.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n").unwrap();
+        assert!(analyze(&cue).is_ok(), "Groß-/Kleinschreibung des Dateinamens egal");
     }
 
     #[test]

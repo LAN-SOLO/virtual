@@ -18,10 +18,20 @@ fn exe(name: &str) -> String {
 /// Sucht ein Binary: erst im Überschreibungs-Ordner, dann PATH, dann Kandidatenordner.
 pub fn find_binary(name: &str, override_dir: &str) -> Option<PathBuf> {
     let file = exe(name);
+    let override_dir = virtual_core::fsutil::normalize_user_path(override_dir, cfg!(windows));
     if !override_dir.is_empty() {
-        let p = Path::new(override_dir);
-        // Überschreibung darf Ordner oder Datei sein
-        if p.is_file() && p.file_name().map(|f| f == file.as_str()).unwrap_or(false) {
+        let p = Path::new(&override_dir);
+        // Überschreibung darf Ordner oder Datei sein (Windows: Groß-/Kleinschreibung egal,
+        // „RetroArch.exe“ = „retroarch.exe“)
+        let same = |f: &std::ffi::OsStr| {
+            let f = f.to_string_lossy();
+            if cfg!(windows) {
+                f.eq_ignore_ascii_case(&file)
+            } else {
+                f == file.as_str()
+            }
+        };
+        if p.is_file() && p.file_name().map(same).unwrap_or(false) {
             return Some(p.to_path_buf());
         }
         let cand = p.join(&file);
@@ -80,8 +90,9 @@ pub fn smbd_available() -> bool {
 }
 
 pub fn retroarch_path(settings: &Settings) -> Option<PathBuf> {
-    let p = Path::new(&settings.retroarch_path);
-    if !settings.retroarch_path.is_empty() && p.is_file() {
+    let custom = virtual_core::fsutil::normalize_user_path(&settings.retroarch_path, cfg!(windows));
+    let p = Path::new(&custom);
+    if !custom.is_empty() && p.is_file() {
         return Some(p.to_path_buf());
     }
     find_binary("retroarch", &settings.retroarch_path)
@@ -104,8 +115,9 @@ fn retroarch_side_dir(settings: &Settings, sub: &str) -> Option<PathBuf> {
 }
 
 pub fn cores_dir(settings: &Settings) -> PathBuf {
-    if !settings.cores_dir.is_empty() {
-        return PathBuf::from(&settings.cores_dir);
+    let custom = virtual_core::fsutil::normalize_user_path(&settings.cores_dir, cfg!(windows));
+    if !custom.is_empty() {
+        return PathBuf::from(custom);
     }
     if let Some(p) = retroarch_side_dir(settings, "cores") {
         return p;
@@ -123,8 +135,9 @@ pub fn cores_dir(settings: &Settings) -> PathBuf {
 
 /// System-/BIOS-Ordner von RetroArch.
 pub fn system_dir(settings: &Settings) -> PathBuf {
-    if !settings.system_dir.is_empty() {
-        return PathBuf::from(&settings.system_dir);
+    let custom = virtual_core::fsutil::normalize_user_path(&settings.system_dir, cfg!(windows));
+    if !custom.is_empty() {
+        return PathBuf::from(custom);
     }
     if let Some(p) = retroarch_side_dir(settings, "system") {
         return p;
