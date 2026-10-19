@@ -91,6 +91,8 @@ pub fn machine_config(m: &Machine, ctx: &LibretroContext) -> String {
     // Kein Verlauf in ~/Documents/RetroArch — die Maschine bleibt in ihrem Ordner
     s.push_str("history_list_enable = \"false\"\n");
     s.push_str("savestate_auto_index = \"false\"\n");
+    // Jeder Start beginnt in Slot 0 — virtual zählt die Slots ab hier (RetroArch kennt nur +/−)
+    s.push_str("state_slot = \"0\"\n");
     s.push_str("savestate_auto_save = \"false\"\n");
     s.push_str("savestate_auto_load = \"false\"\n");
     s.push_str("pause_nonactive = \"false\"\n");
@@ -221,6 +223,7 @@ mod tests {
         assert!(cfg.contains("sort_savestates_enable = \"false\""), "States flach im Ordner");
         assert!(cfg.contains("history_list_enable = \"false\""));
         assert!(cfg.contains("quit_press_twice = \"false\""), "QUIT muss beim ersten Mal wirken");
+        assert!(cfg.contains("state_slot = \"0\""), "Slot-Zählung beginnt bei jedem Start bei 0");
     }
 
     #[test]

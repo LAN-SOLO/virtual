@@ -25,6 +25,79 @@ pub struct HostContext {
     pub audio_backend: String,
     /// Host kann den Prozessnamen setzen (`-name …,process=…`) — nur Linux; macOS und Windows brechen sonst ab.
     pub process_names: bool,
+    /// QEMU-Build kann OpenGL-Anzeige (`gl=on`, `virtio-vga-gl`) — Homebrew/cocoa nicht.
+    pub gl: bool,
+    /// SLIRP-SMB-Freigabe nutzbar (Samba-`smbd` vorhanden; unter Windows nie).
+    pub smb: bool,
+    /// virtio-9p (`-fsdev`) verfügbar — nicht in QEMU für Windows.
+    pub virtfs: bool,
+}
+
+/// Wert für eine komma-getrennte QEMU-Option: Kommas werden verdoppelt, damit ein Pfad
+/// oder Name wie „Win 3.11, DOS“ keine weiteren Optionen einschleusen oder den Start brechen kann.
+pub fn qv(value: &str) -> String {
+    value.replace(',', ",,")
+}
+
+/// Grafikgerät, wie es auf diesem Host tatsächlich nutzbar ist (ohne GL fällt `-gl` weg).
+fn effective_graphics(m: &Machine, ctx: &HostContext) -> String {
+    let gfx = if m.devices.graphics.is_empty() { "std" } else { m.devices.graphics.as_str() };
+    let mut d = gfx.to_string();
+    if ctx.gl {
+        if m.display.gl && !d.ends_with("-gl") && (d == "virtio-vga" || d == "virtio-gpu-pci") {
+            d = if d == "virtio-vga" { "virtio-vga-gl".into() } else { "virtio-gpu-gl-pci".into() };
+        }
+    } else {
+        d = match d.as_str() {
+            "virtio-vga-gl" => "virtio-vga".into(),
+            "virtio-gpu-gl-pci" => "virtio-gpu-pci".into(),
+            _ => d,
+        };
+    }
+    d
+}
+
+/// Secure-Boot-Firmware ist nur auf q35 mit TCG oder KVM verlässlich (SMM nötig).
+pub fn secure_boot_active(m: &Machine, ctx: &HostContext) -> bool {
+    m.firmware == Firmware::UefiSecure
+        && m.machine_type == "q35"
+        && matches!(m.arch, Arch::X86_64 | Arch::I386)
+        && matches!(ctx.accel.as_deref(), None | Some("kvm"))
+}
+
+/// Hinweise zu Einstellungen, die dieser Host nicht umsetzen kann — der Start
+/// protokolliert sie, statt still etwas anderes zu tun.
+pub fn host_notes(m: &Machine, ctx: &HostContext) -> Vec<String> {
+    let mut n = Vec::new();
+    if m.engine != Engine::Qemu {
+        return n;
+    }
+    if m.tpm && ctx.tpm_socket.is_none() {
+        n.push("TPM 2.0: swtpm nicht gefunden — die Maschine startet ohne TPM.".into());
+    }
+    if m.firmware == Firmware::UefiSecure && !secure_boot_active(m, ctx) {
+        n.push("Secure Boot: mit diesem Beschleuniger bzw. Board nicht verfügbar — Start mit UEFI ohne Secure Boot.".into());
+    }
+    if (m.display.gl || m.devices.graphics.ends_with("-gl")) && !ctx.gl {
+        n.push("OpenGL: von diesem QEMU-Build nicht unterstützt — Anzeige ohne GL.".into());
+    }
+    if !m.shared_folders.is_empty() {
+        let ninep = m.devices.storage_bus == "virtio" && ctx.virtfs;
+        let smb = m.network.mode != NetworkMode::Off && ctx.smb;
+        if m.devices.storage_bus == "virtio" && !ctx.virtfs {
+            n.push("Gemeinsame Ordner: virtio-9p gibt es in QEMU für Windows nicht.".into());
+        }
+        if m.network.mode != NetworkMode::Off && !ctx.smb {
+            n.push("Gemeinsame Ordner: SMB-Freigabe übersprungen — Samba (smbd) fehlt bzw. Windows-Host.".into());
+        }
+        if !ninep && !smb {
+            n.push("Gemeinsame Ordner sind für diese Maschine nicht eingehängt (virtio-9p braucht den virtio-Bus, SMB ein Netz).".into());
+        }
+        if smb && m.shared_folders.len() > 1 {
+            n.push("SMB-Freigabe: nur der erste Ordner (SLIRP kann eine Freigabe).".into());
+        }
+    }
+    n
 }
 
 /// Maschinen, deren Grafik/Netz/Audio fest verdrahtet sind — kein `-device`.
@@ -32,13 +105,11 @@ fn integrated_board(machine_type: &str) -> bool {
     matches!(machine_type, "q800" | "mac99" | "g3beige" | "next-cube" | "malta")
 }
 
+/// Pfad relativ zum Maschinenordner auflösen — bereits für QEMU-Optionen maskiert (Kommas).
 fn resolve(dir: &Path, p: &str) -> String {
     let path = Path::new(p);
-    if path.is_absolute() {
-        p.to_string()
-    } else {
-        dir.join(path).to_string_lossy().into_owned()
-    }
+    let full = if path.is_absolute() { p.to_string() } else { dir.join(path).to_string_lossy().into_owned() };
+    qv(&full)
 }
 
 /// Bootgerät der Maschine: `auto` | `disk` | `cdrom` | `floppy` (leer/unbekannt = auto).
@@ -77,8 +148,15 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
     }
     if let Some(accel) = ctx.accel.as_deref() {
         machine.push_str(&format!(",accel={accel}"));
+        if accel == "whpx" {
+            // WHPX ohne Kernel-irqchip: sonst scheitern viele Gäste an der Interrupt-Zustellung
+            machine.push_str(",kernel-irqchip=off");
+        }
     } else {
         machine.push_str(",accel=tcg");
+    }
+    if secure_boot_active(m, ctx) {
+        machine.push_str(",smm=on");
     }
     push(&mut a, "-M");
     a.push(machine);
@@ -121,21 +199,22 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
                 .uefi_code
                 .as_ref()
                 .ok_or("UEFI-Firmware (OVMF/AAVMF) nicht gefunden — im QEMU-Paket enthalten?")?;
+            if secure_boot_active(m, ctx) {
+                push(&mut a, "-global");
+                push(&mut a, "driver=cfi.pflash01,property=secure,value=on");
+            }
             push(&mut a, "-drive");
-            a.push(format!(
-                "if=pflash,format=raw,readonly=on,file={}",
-                code.to_string_lossy()
-            ));
+            a.push(format!("if=pflash,format=raw,readonly=on,file={}", qv(&code.to_string_lossy())));
             if let Some(vars) = &ctx.uefi_vars {
                 push(&mut a, "-drive");
-                a.push(format!("if=pflash,format=raw,file={}", vars.to_string_lossy()));
+                a.push(format!("if=pflash,format=raw,file={}", qv(&vars.to_string_lossy())));
             }
         }
     }
     if m.tpm {
         if let Some(sock) = &ctx.tpm_socket {
             push(&mut a, "-chardev");
-            a.push(format!("socket,id=chrtpm,path={}", sock.to_string_lossy()));
+            a.push(format!("socket,id=chrtpm,path={}", qv(&sock.to_string_lossy())));
             push(&mut a, "-tpmdev");
             push(&mut a, "emulator,id=tpm0,chardev=chrtpm");
             push(&mut a, "-device");
@@ -282,17 +361,15 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
 
     // --- Grafik, Eingabe, Audio --------------------------------------------
     if !integrated_board(&m.machine_type) {
-        let gfx = if m.devices.graphics.is_empty() { "std" } else { m.devices.graphics.as_str() };
-        match gfx {
+        let gfx = effective_graphics(m, ctx);
+        match gfx.as_str() {
             "std" | "VGA" => { push(&mut a, "-vga"); push(&mut a, "std"); }
             "cirrus-vga" => { push(&mut a, "-vga"); push(&mut a, "cirrus"); }
             "none" => { push(&mut a, "-vga"); push(&mut a, "none"); }
             dev => {
                 push(&mut a, "-vga"); push(&mut a, "none");
                 push(&mut a, "-device");
-                let mut d = dev.to_string();
-                if m.display.gl && !d.ends_with("-gl") && d.starts_with("virtio") { d.push_str("-gl"); }
-                a.push(d);
+                a.push(dev.to_string());
             }
         }
         match m.devices.input.as_str() {
@@ -304,8 +381,19 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
             push(&mut a, "-audiodev");
             a.push(format!("{},id=snd0", ctx.audio_backend));
             for dev in &m.devices.audio {
-                push(&mut a, "-device");
-                a.push(format!("{dev},audiodev=snd0"));
+                match dev.as_str() {
+                    // HD-Audio ist nur der Controller — hören lässt er sich erst mit einem Codec
+                    "intel-hda" | "ich9-intel-hda" => {
+                        push(&mut a, "-device");
+                        a.push(dev.clone());
+                        push(&mut a, "-device");
+                        push(&mut a, "hda-duplex,audiodev=snd0");
+                    }
+                    _ => {
+                        push(&mut a, "-device");
+                        a.push(format!("{dev},audiodev=snd0"));
+                    }
+                }
             }
         }
     } else if !m.devices.audio.is_empty() && ctx.audio_backend != "none" {
@@ -321,12 +409,18 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
             let mut net = String::from("user,id=net0");
             if mode == NetworkMode::Isolated { net.push_str(",restrict=on"); }
             for f in &m.network.forwards {
-                net.push_str(&format!(",hostfwd={}::{}-:{}", f.proto, f.host_port, f.guest_port));
+                if f.host_port == 0 || f.guest_port == 0 {
+                    continue;
+                }
+                let proto = if f.proto == "udp" { "udp" } else { "tcp" };
+                // Nur an localhost binden: eine Weiterleitung öffnet den Gast nie ins LAN
+                net.push_str(&format!(",hostfwd={proto}:127.0.0.1:{}-:{}", f.host_port, f.guest_port));
             }
-            for s in &m.shared_folders {
-                // SMB-Freigabe über SLIRP: für alte Gäste ohne virtiofs — nur erste Freigabe (SLIRP kann eine)
-                net.push_str(&format!(",smb={}", s.host_path));
-                break;
+            if ctx.smb {
+                if let Some(s) = m.shared_folders.first() {
+                    // SMB-Freigabe über SLIRP: für alte Gäste ohne virtio-9p — nur eine (SLIRP kann eine)
+                    net.push_str(&format!(",smb={}", qv(&s.host_path)));
+                }
             }
             push(&mut a, "-netdev");
             a.push(net);
@@ -342,43 +436,46 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
     }
 
     // --- Gemeinsame Ordner (virtio-9p; virtiofs folgt in 0.2) -------------
-    if m.devices.storage_bus == "virtio" {
+    if m.devices.storage_bus == "virtio" && ctx.virtfs {
         for (i, s) in m.shared_folders.iter().enumerate() {
             let ro = s.read_only || m.isolation.read_only_shares;
             push(&mut a, "-fsdev");
             a.push(format!(
                 "local,id=fs{i},path={},security_model=mapped-xattr{}",
-                s.host_path,
+                qv(&s.host_path),
                 if ro { ",readonly=on" } else { "" }
             ));
+            let tag: String = s.name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').take(31).collect();
+            let tag = if tag.is_empty() { format!("share{i}") } else { tag };
             push(&mut a, "-device");
-            a.push(format!("virtio-9p-pci,fsdev=fs{i},mount_tag={}", s.name));
+            a.push(format!("virtio-9p-pci,fsdev=fs{i},mount_tag={tag}"));
         }
     }
 
     // --- Anzeige, Steuerung, Isolation ------------------------------------
     match m.display.kind.as_str() {
         "headless" => { push(&mut a, "-display"); push(&mut a, "none"); }
-        "vnc" => { push(&mut a, "-display"); push(&mut a, "none"); push(&mut a, "-vnc"); push(&mut a, "127.0.0.1:0"); }
+        // Nur localhost; ab Port 5900 die nächste freie Anzeige (mehrere Maschinen gleichzeitig)
+        "vnc" => { push(&mut a, "-display"); push(&mut a, "none"); push(&mut a, "-vnc"); push(&mut a, "127.0.0.1:0,to=99"); }
         _ => {
             push(&mut a, "-display");
             let mut d = ctx.display_backend.clone();
-            if m.display.gl && matches!(ctx.display_backend.as_str(), "gtk" | "sdl" | "cocoa") { d.push_str(",gl=on"); }
+            if m.display.gl && ctx.gl && matches!(ctx.display_backend.as_str(), "gtk" | "sdl") { d.push_str(",gl=on"); }
             if m.display.fullscreen { d.push_str(",full-screen=on"); }
             a.push(d);
         }
     }
     push(&mut a, "-name");
     if ctx.process_names {
-        a.push(format!("{},process=virtual-{}", m.name, m.id));
+        a.push(format!("{},process=virtual-{}", qv(&m.name), qv(&m.id)));
     } else {
-        a.push(m.name.clone());
+        a.push(qv(&m.name));
     }
     push(&mut a, "-qmp");
     if ctx.qmp.starts_with("tcp:") {
         a.push(format!("{},server=on,wait=off", ctx.qmp));
     } else {
-        a.push(format!("unix:{},server=on,wait=off", ctx.qmp));
+        a.push(format!("unix:{},server=on,wait=off", qv(&ctx.qmp)));
     }
     push(&mut a, "-rtc");
     push(&mut a, "base=localtime,clock=host");
@@ -435,6 +532,9 @@ mod tests {
             display_backend: "cocoa".into(),
             audio_backend: "coreaudio".into(),
             process_names: false,
+            gl: false,
+            smb: true,
+            virtfs: true,
         }
     }
 
@@ -467,6 +567,8 @@ mod tests {
         assert!(a.iter().any(|x| x.starts_with("virtio-blk-pci,drive=disk0")));
         assert!(a.iter().any(|x| x.contains("/iso/win11.iso") && x.contains("media=cdrom")));
         assert!(a.iter().any(|x| x == "tpm-tis,tpmdev=tpm0"));
+        assert!(has_pair(&a, "-device", "intel-hda") && has_pair(&a, "-device", "hda-duplex,audiodev=snd0"), "HDA braucht einen Codec");
+        assert!(!a.iter().any(|x| x == "intel-hda,audiodev=snd0"), "intel-hda kennt kein audiodev");
         assert!(has_pair(&a, "-netdev", "user,id=net0"));
         assert!(!a.contains(&"-icount".to_string()), "kein icount mit Beschleuniger");
         assert!(!a.contains(&"-snapshot".to_string()));
@@ -498,7 +600,7 @@ mod tests {
         m.network.forwards.push(PortForward { proto: "tcp".into(), host_port: 2222, guest_port: 22 });
         let a = qemu_argv(&m, &ctx(None)).unwrap();
         assert!(a.contains(&"-snapshot".to_string()));
-        assert!(has_pair(&a, "-netdev", "user,id=net0,restrict=on,hostfwd=tcp::2222-:22"));
+        assert!(has_pair(&a, "-netdev", "user,id=net0,restrict=on,hostfwd=tcp:127.0.0.1:2222-:22"));
         assert!(a.iter().any(|x| x == "rtl8139,netdev=net0"));
     }
 
@@ -595,6 +697,90 @@ mod tests {
         c.process_names = true;
         let a = qemu_argv(&m, &c).unwrap();
         assert!(has_pair(&a, "-name", "Test,process=virtual-m1"));
+    }
+
+    #[test]
+    fn commas_in_names_and_paths_are_escaped() {
+        let mut m = machine("pc-1996-pentium133");
+        m.name = "Win 3.11, DOS".into();
+        m.media.push(MediaRef { id: "c".into(), kind: MediaKind::Cdrom, path: "/iso/a,b.iso".into(), slot: 0 });
+        let a = norm(&qemu_argv(&m, &ctx(None)).unwrap());
+        assert!(has_pair(&a, "-name", "Win 3.11,, DOS"));
+        assert!(a.iter().any(|x| x.contains("file=/iso/a,,b.iso,format=raw")), "{a:?}");
+        let mut c = ctx(None);
+        c.process_names = true;
+        assert!(has_pair(&qemu_argv(&m, &c).unwrap(), "-name", "Win 3.11,, DOS,process=virtual-m1"));
+    }
+
+    #[test]
+    fn forwards_bind_localhost_and_skip_invalid() {
+        let mut m = machine("modern-x86-bios");
+        m.network.mode = NetworkMode::Nat;
+        m.network.forwards.push(PortForward { proto: "udp".into(), host_port: 5000, guest_port: 5000 });
+        m.network.forwards.push(PortForward { proto: "tcp".into(), host_port: 0, guest_port: 22 });
+        m.network.forwards.push(PortForward { proto: "tcp;x".into(), host_port: 8080, guest_port: 80 });
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        let net = a.iter().find(|x| x.starts_with("user,id=net0")).unwrap();
+        assert_eq!(net, "user,id=net0,hostfwd=udp:127.0.0.1:5000-:5000,hostfwd=tcp:127.0.0.1:8080-:80");
+    }
+
+    #[test]
+    fn shares_follow_host_capabilities() {
+        let mut m = machine("modern-x86-bios");
+        m.devices.storage_bus = "virtio".into();
+        m.network.mode = NetworkMode::Nat;
+        m.shared_folders.push(SharedFolder { host_path: "/data,x".into(), name: "da ta".into(), read_only: false });
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        assert!(a.iter().any(|x| x == "local,id=fs0,path=/data,,x,security_model=mapped-xattr"));
+        assert!(a.iter().any(|x| x == "virtio-9p-pci,fsdev=fs0,mount_tag=data"));
+        assert!(a.iter().any(|x| x.ends_with(",smb=/data,,x")));
+        assert!(host_notes(&m, &ctx(None)).is_empty());
+        // Windows-Host: weder 9p noch SMB — QEMU startet trotzdem, der Start protokolliert es
+        let mut c = ctx(None);
+        c.smb = false;
+        c.virtfs = false;
+        let a = qemu_argv(&m, &c).unwrap();
+        assert!(!a.iter().any(|x| x.contains("smb=") || x == "-fsdev"));
+        assert!(host_notes(&m, &c).len() >= 2);
+    }
+
+    #[test]
+    fn gl_only_where_the_build_supports_it() {
+        let mut m = machine("modern-x86-uefi");
+        m.display.gl = true;
+        m.devices.graphics = "virtio-vga-gl".into();
+        let a = qemu_argv(&m, &ctx(Some("hvf"))).unwrap();
+        assert!(has_pair(&a, "-device", "virtio-vga"), "cocoa ohne GL: Gerät ohne -gl");
+        assert!(has_pair(&a, "-display", "cocoa"));
+        assert!(!host_notes(&m, &ctx(Some("hvf"))).is_empty());
+        let mut c = ctx(Some("kvm"));
+        c.gl = true;
+        c.display_backend = "gtk".into();
+        m.devices.graphics = "virtio-vga".into();
+        let a = qemu_argv(&m, &c).unwrap();
+        assert!(has_pair(&a, "-device", "virtio-vga-gl"));
+        assert!(has_pair(&a, "-display", "gtk,gl=on"));
+    }
+
+    #[test]
+    fn whpx_and_secure_boot_machine_flags() {
+        let mut m = machine("modern-x86-uefi");
+        let a = qemu_argv(&m, &ctx(Some("whpx"))).unwrap();
+        assert!(has_pair(&a, "-M", "q35,accel=whpx,kernel-irqchip=off"));
+        m.firmware = Firmware::UefiSecure;
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        assert!(has_pair(&a, "-M", "q35,accel=tcg,smm=on"));
+        assert!(has_pair(&a, "-global", "driver=cfi.pflash01,property=secure,value=on"));
+        let a = qemu_argv(&m, &ctx(Some("hvf"))).unwrap();
+        assert!(has_pair(&a, "-M", "q35,accel=hvf"), "HVF: kein SMM");
+        assert!(!host_notes(&m, &ctx(Some("hvf"))).is_empty());
+    }
+
+    #[test]
+    fn vnc_is_local_and_finds_a_free_display() {
+        let mut m = machine("modern-x86-bios");
+        m.display.kind = "vnc".into();
+        assert!(has_pair(&qemu_argv(&m, &ctx(None)).unwrap(), "-vnc", "127.0.0.1:0,to=99"));
     }
 
     #[test]

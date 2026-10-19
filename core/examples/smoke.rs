@@ -44,6 +44,9 @@ fn main() {
                     display_backend: "cocoa".into(),
                     audio_backend: "coreaudio".into(),
                     process_names: false,
+                    gl: false,
+                    smb: false,
+                    virtfs: true,
                 };
                 for x in argv::qemu_argv(&m, &ctx).unwrap() { println!("{x}"); }
             } else {

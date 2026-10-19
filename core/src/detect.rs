@@ -120,19 +120,33 @@ pub fn retroarch_dirs(host: HostOs, home: &str) -> (String, String) {
     }
 }
 
-/// Kandidaten für UEFI-Firmware relativ zu einem QEMU-Präfix (Homebrew, Distro, Windows-Installer).
-pub fn uefi_candidates(prefix: &str, guest: Arch) -> Vec<String> {
+/// Kandidaten für UEFI-Firmware: relativ zum QEMU-Präfix (Homebrew/Distro: `<prefix>/share/qemu`),
+/// zum Binary-Ordner (Windows-Installer: `<qemu>\\share`) und an Distro-Pfaden.
+/// `secure`: Secure-Boot-Build (SMM) bevorzugen — nur x86.
+pub fn uefi_candidates(prefix: &str, bin_dir: &str, guest: Arch, secure: bool) -> Vec<String> {
     match guest {
-        Arch::X86_64 | Arch::I386 => vec![
-            format!("{prefix}/share/qemu/edk2-x86_64-code.fd"),
-            format!("{prefix}/share/qemu/edk2-x86_64-secure-code.fd"),
-            "/usr/share/OVMF/OVMF_CODE_4M.fd".into(),
-            "/usr/share/OVMF/OVMF_CODE.fd".into(),
-            "/usr/share/edk2/ovmf/OVMF_CODE.fd".into(),
-            "/usr/share/edk2-ovmf/x64/OVMF_CODE.fd".into(),
-        ],
+        Arch::X86_64 | Arch::I386 => {
+            let mut v = Vec::new();
+            if secure {
+                v.push(format!("{prefix}/share/qemu/edk2-x86_64-secure-code.fd"));
+                v.push(format!("{bin_dir}/share/edk2-x86_64-secure-code.fd"));
+                v.push("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd".into());
+                v.push("/usr/share/OVMF/OVMF_CODE.secboot.fd".into());
+                v.push("/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd".into());
+            }
+            v.extend([
+                format!("{prefix}/share/qemu/edk2-x86_64-code.fd"),
+                format!("{bin_dir}/share/edk2-x86_64-code.fd"),
+                "/usr/share/OVMF/OVMF_CODE_4M.fd".into(),
+                "/usr/share/OVMF/OVMF_CODE.fd".into(),
+                "/usr/share/edk2/ovmf/OVMF_CODE.fd".into(),
+                "/usr/share/edk2-ovmf/x64/OVMF_CODE.fd".into(),
+            ]);
+            v
+        }
         Arch::Aarch64 => vec![
             format!("{prefix}/share/qemu/edk2-aarch64-code.fd"),
+            format!("{bin_dir}/share/edk2-aarch64-code.fd"),
             "/usr/share/AAVMF/AAVMF_CODE.fd".into(),
             "/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw".into(),
         ],
@@ -140,17 +154,19 @@ pub fn uefi_candidates(prefix: &str, guest: Arch) -> Vec<String> {
     }
 }
 
-/// Größe der NVRAM-Kopie zum Firmware-Code (edk2-Builds von QEMU: 64 MiB aarch64, sonst wie Vars-Datei).
-pub fn uefi_vars_template(prefix: &str, guest: Arch) -> Vec<String> {
+/// Vorlagen für die beschreibbare NVRAM-Kopie (passend zu den Code-Kandidaten oben).
+pub fn uefi_vars_template(prefix: &str, bin_dir: &str, guest: Arch) -> Vec<String> {
     match guest {
         Arch::X86_64 | Arch::I386 => vec![
             format!("{prefix}/share/qemu/edk2-i386-vars.fd"),
+            format!("{bin_dir}/share/edk2-i386-vars.fd"),
             "/usr/share/OVMF/OVMF_VARS_4M.fd".into(),
             "/usr/share/OVMF/OVMF_VARS.fd".into(),
             "/usr/share/edk2/ovmf/OVMF_VARS.fd".into(),
         ],
         Arch::Aarch64 => vec![
             format!("{prefix}/share/qemu/edk2-arm-vars.fd"),
+            format!("{bin_dir}/share/edk2-arm-vars.fd"),
             "/usr/share/AAVMF/AAVMF_VARS.fd".into(),
         ],
         _ => Vec::new(),
@@ -199,7 +215,12 @@ mod tests {
         assert!(candidate_dirs(HostOs::MacOs).iter().any(|d| d.contains("homebrew")));
         let (cores, system) = retroarch_dirs(HostOs::MacOs, "/Users/x");
         assert!(cores.ends_with("/cores") && system.ends_with("/system"));
-        assert!(uefi_candidates("/opt/homebrew", Arch::X86_64)[0].contains("edk2-x86_64-code.fd"));
-        assert!(uefi_candidates("/x", Arch::M68k).is_empty());
+        assert!(uefi_candidates("/opt/homebrew", "/opt/homebrew/bin", Arch::X86_64, false)[0].contains("edk2-x86_64-code.fd"));
+        assert!(uefi_candidates("/opt/homebrew", "/opt/homebrew/bin", Arch::X86_64, true)[0].contains("secure-code"));
+        // Windows-Installer: Firmware liegt in <qemu>\share, nicht <prefix>\share\qemu
+        let win = uefi_candidates("C:\\Program Files", "C:\\Program Files\\qemu", Arch::X86_64, false);
+        assert!(win.iter().any(|p| p == "C:\\Program Files\\qemu/share/edk2-x86_64-code.fd"));
+        assert!(uefi_vars_template("C:\\Program Files", "C:\\Program Files\\qemu", Arch::X86_64).iter().any(|p| p.ends_with("qemu/share/edk2-i386-vars.fd")));
+        assert!(uefi_candidates("/x", "/x/bin", Arch::M68k, false).is_empty());
     }
 }
