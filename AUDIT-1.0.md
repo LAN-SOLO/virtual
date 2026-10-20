@@ -453,3 +453,69 @@ Einlegen überschrieben, ohne Herkunftsmarkierung nie wiederverwendet); RetroArc
 - [ ] Beide: Snapshot einer gestoppten Maschine mit großer Platte, währenddessen schließen → Hinweis „wartet bis zu 60 s“, App beendet sich nach dem Snapshot, Snapshot steht nach Neustart in der Liste.
 - [ ] Beide: Update-Banner, während nur ein Offline-Snapshot läuft → eigene Nachfrage.
 - [ ] macOS mit Samba: Retro-Profil mit Ordner und Netz „isoliert“ → kein SMB, Hinweis im Log; „schreibgeschützt“ abschalten → `\\10.0.2.4\qemu` im Gast beschreibbar.
+
+## Runde 3 – Verifikation (unabhängige Prüfung, 2026-10-20)
+
+Geprüft wurde der Diff `f9e6258..15f900f` (Regressionen plattformübergreifend, Nebenläufigkeit, i18n,
+Handbuch DE/EN) sowie zehn Handbuch-Aussagen, die Runde 3 nicht genannt hatte.
+
+### Nachgemessen (selbst ausgeführt)
+
+- `cargo test --workspace`: core 49/49, App 15/15, 1 ignoriert; Live-Test `qemu_live` (`--ignored`) gegen
+  das echte qemu-system-i386/qemu-img 11.1.1 grün (inkl. Geister-Eintrag löschen, Rücknahme bei
+  schreibgeschütztem Ordner, gesperrte Platte bei verwaistem QEMU).
+- `pnpm test:ui` 4/4, `pnpm build` (tsc + vite) grün; eigene Suche über alle deutschen Literale in
+  `core/` und `src-tauri/`: ohne Übersetzung nur Testcode und das `expect` für eingebettete Profile.
+- UI-Harness (headless Chromium, Dialog-Plugin-2.7-Mock) erneut: 23 Abläufe × 4 Konfigurationen = 92/92,
+  keine Konsolenfehler, kein Überlauf, keine falsche Sprache.
+- Windows-Typecheck (`cargo check --target x86_64-pc-windows-msvc --workspace --tests`, gestubbte
+  MSVC-Header/llvm-rc, nichts gelinkt) grün, ohne Warnungen.
+- `cargo clippy --workspace --all-targets`: nur ältere Stil-Warnungen, keine in den Änderungen von Runde 3.
+- `cargo audit`: unverändert `zip` 4.6.1 (RUSTSEC-2026-0367/0368/0369) über tauri-plugin-updater plus
+  Unmaintained-Hinweise (unic-*, proc-macro-error, zbus_names).
+- Nicht wiederholt: volle Platte auf RAM-Disk (`VIRTUAL_FULL_DIR`), `qemucheck` über alle Profile.
+
+### Diff-Review — keine Regression gefunden
+
+- `accel_for_machine`: Alle eingebauten Profile tragen eine Kategorie; `machine.json` übernimmt sie beim
+  Anlegen. Nur `modern` wird beschleunigt — Retro-Mac/andere Architekturen hatten ohnehin keinen
+  Beschleuniger. Die Host-Anzeige (Einstellungen → Engines) nutzt weiterhin `accel_for` (richtig).
+- Beenden: `quit_app` wartet in einem eigenen Thread; `app.exit(0)` löst `ExitRequested` mit Code aus und
+  wird nicht erneut abgefangen. Ein während der Wartezeit gestarteter Gast wird über `RunEvent::Exit`
+  (`stop_all`) beendet. `Op::Start` ist nur während des Hochfahrens belegt — eine laufende Maschine
+  verlängert das Warten nicht.
+- `write_iso`, `write_atomic`, Snapshot-Rücknahme, Löschen eines Geister-Eintrags und die Slot-Sicherung
+  bei Konsolen sind korrekt; das Speichern nach einem Konsolen-Fehler kann die ursprüngliche Meldung nur
+  verdecken, wenn zusätzlich `machine.json` nicht schreibbar ist (hingenommen).
+
+### Gefunden und behoben
+
+1. **Falscher Bedienweg zum SMB-Schreibschutz.** Log-Hinweis (DE/EN) und Handbuch (Isolation & Sicherheit,
+   DE/EN) verwiesen auf „Hardware → Isolation“ — einen solchen Abschnitt gibt es im Hardware-Tab nicht;
+   das Häkchen heißt „Gemeinsame Ordner schreibgeschützt“. Außerdem genügte „den Schreibschutz abschalten“
+   nicht: Ordner, die bei aktivem Schreibschutz hinzugefügt wurden, tragen selbst „nur lesen“, und SMB
+   entfällt, solange eines der beiden gesetzt ist. Hinweis, Übersetzung und Handbuch nennen jetzt beide
+   Häkchen. Der Gerätetest „macOS mit Samba“ aus Runde 3 gilt entsprechend: beide Häkchen abschalten.
+
+### Stichproben im Handbuch (gegen Code/Profile geprüft, alle zutreffend)
+
+1. Port-Weiterleitungen nur auf 127.0.0.1 (`hostfwd=…:127.0.0.1:…`).
+2. VNC nur lokal ab 5900 (`-vnc 127.0.0.1:0,to=99`).
+3. Wegwerf-Modus = `-snapshot`.
+4. CPU „host“ ohne Beschleuniger → automatisch passendes Modell (`argv.rs`, Zeile mit `cpu == "host" && accel.is_none()`).
+5. Secure Boot mit HVF/WHPX → normales UEFI mit Log-Hinweis (`secure_boot_active`, `host_notes`).
+6. NVRAM als `nvram.fd` im Maschinenordner.
+7. Disketten schreibgeschützt eingelegt (`if=floppy,…,readonly=on`).
+8. Konsolen: `saves/`, `states/`, `screenshots/` im Maschinenordner; Netplay und Achievements aus (`netplay_enable`/`cheevos_enable = false`).
+9. BIOS-Listen der Profile (PSX, Saturn, Dreamcast, NDS, Neo Geo; Mega-CD/PC Engine ohne Pflicht-BIOS) und Geräte der PC-Profile (SB16+AdLib, XP: AC97, NE2000/RTL8139, Diskette).
+10. Nacktes „D:“ wird unter Windows zu „D:\“ (`normalize_user_path`), Cores-Ordner im RetroArch.app-Bundle wird gesucht.
+
+Nebenbefund ohne Änderung: Das Profil „Power Mac G3“ nutzt `mac99` mit CPU-Modell `g4`; das Handbuch
+nennt nur „startet mit OpenBIOS ohne ROM“, was zutrifft.
+
+### Weiterhin offen
+
+- Alles aus „Nur am Gerät prüfbar“ der Runden 1–3 gilt unverändert (WHPX/TCG + `-icount` unter Windows,
+  Windows-95-Start, Firewall-Abfrage für RetroArch, Beenden/Update während eines langen Offline-Snapshots,
+  SMB mit Samba, MSI/NSIS, SDL).
+- Windows-QMP über TCP ohne Anmeldung (Startfenster), RetroArch-Kommandoport im LAN, `zip` im Updater — wie Runde 3.

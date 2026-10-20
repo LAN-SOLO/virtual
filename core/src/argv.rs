@@ -100,7 +100,7 @@ pub fn host_notes(m: &Machine, ctx: &HostContext) -> Vec<String> {
         if m.network.mode != NetworkMode::Off && !ctx.smb {
             n.push("Gemeinsame Ordner: SMB-Freigabe übersprungen — Samba (smbd) fehlt bzw. Windows-Host.".into());
         } else if m.network.mode != NetworkMode::Off && !smb && !ninep {
-            n.push("Gemeinsame Ordner: SMB-Freigaben sind immer beschreibbar — der Ordner ist schreibgeschützt eingestellt und wird nicht freigegeben (Hardware → Isolation bzw. Häkchen am Ordner).".into());
+            n.push("Gemeinsame Ordner: SMB-Freigaben sind immer beschreibbar — der Ordner ist schreibgeschützt eingestellt und wird nicht freigegeben (zum Freigeben unter Hardware „Gemeinsame Ordner schreibgeschützt“ und am Ordner „nur lesen“ abschalten).".into());
         }
         if !ninep && !smb {
             n.push("Gemeinsame Ordner sind für diese Maschine nicht eingehängt (virtio-9p braucht den virtio-Bus, SMB ein Netz).".into());

@@ -112,8 +112,8 @@ const RULES: Rule[] = [
     'Shared folders: SMB share skipped — Samba (smbd) is missing or the host is Windows.'],
   [/^Gemeinsame Ordner sind für diese Maschine nicht eingehängt \(virtio-9p braucht den virtio-Bus, SMB ein Netz\)\.$/,
     'Shared folders are not mounted for this machine (virtio-9p needs the virtio bus, SMB a network).'],
-  [/^Gemeinsame Ordner: SMB-Freigaben sind immer beschreibbar — der Ordner ist schreibgeschützt eingestellt und wird nicht freigegeben \(Hardware → Isolation bzw\. Häkchen am Ordner\)\.$/,
-    'Shared folders: SMB shares are always writable — the folder is set to read-only and is not shared (Hardware → Isolation or the checkbox at the folder).'],
+  [/^Gemeinsame Ordner: SMB-Freigaben sind immer beschreibbar — der Ordner ist schreibgeschützt eingestellt und wird nicht freigegeben \(zum Freigeben unter Hardware „Gemeinsame Ordner schreibgeschützt“ und am Ordner „nur lesen“ abschalten\)\.$/,
+    'Shared folders: SMB shares are always writable — the folder is set to read-only and is not shared (to share it, turn off “Shared folders read-only” under Hardware and “read-only” at the folder).'],
   [/^SMB-Freigabe: nur der erste Ordner \(SLIRP kann eine Freigabe\)\.$/, 'SMB share: only the first folder (SLIRP supports one share).'],
 
   // Präfix „qemu-img: …“ zuletzt (die Ursache selbst ist Engine-Text)
