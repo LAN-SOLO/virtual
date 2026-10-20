@@ -519,3 +519,32 @@ nennt nur „startet mit OpenBIOS ohne ROM“, was zutrifft.
   Windows-95-Start, Firewall-Abfrage für RetroArch, Beenden/Update während eines langen Offline-Snapshots,
   SMB mit Samba, MSI/NSIS, SDL).
 - Windows-QMP über TCP ohne Anmeldung (Startfenster), RetroArch-Kommandoport im LAN, `zip` im Updater — wie Runde 3.
+
+## Runde 4 – Regressionen (behaviour, 2026-10-20)
+
+Geprüft: `f9e6258..39c266b` mit der Frage „was vorher ging, geht es noch?“ — Basis als Worktree
+gegengeprüft (`qemu_argv`/`host_notes` alt gegen neu).
+
+### Gefunden und behoben
+
+1. **SMB-Freigabe verschwand für Windows-Gäste kommentarlos.** Aktuelle Profile mit virtio-Bus
+   (`modern-x86-uefi`, u. a. Windows 10/11) bekamen bis Runde 3 zusätzlich zu 9p die SMB-Freigabe —
+   für Windows-Gäste (kein 9p) der einzige Weg zum Ordner. Seit Runde 3 entfällt sie bei „nur lesen“
+   (gewollt, SMB ist immer beschreibbar), der versprochene Log-Hinweis fehlte aber, weil er nur ohne
+   9p kam (Basis: `smb=/data`, kein Hinweis zu SMB; neu: kein `smb=`, ebenfalls kein Hinweis). Jetzt
+   eigener Hinweis (DE/EN übersetzt): keine SMB-Freigabe, 9p hängt schreibgeschützt ein, Gäste ohne 9p
+   sehen den Ordner nicht. Test `dropped_smb_share_is_noted_even_with_9p` (vorher rot, jetzt grün).
+
+### Geprüft, keine Regression
+
+- `accel_for_machine`: alle eingebauten Profile haben eine Kategorie; `other-arch` (MIPS, RISC-V) und
+  Retro-Mac hatten nie einen Beschleuniger; Nutzerprofile ohne Kategorie erscheinen im Assistenten nicht.
+- `.img` > 2,88 MB als CD: ein solches Abbild lief vorher als Diskette auch nicht; unbekannte Formate
+  gehen weiterhin roh an QEMU. 1,44-MB-IMG/IMA/DSK/VFD bleiben Diskette.
+- `write_iso` (nur `UnexpectedEof` beendet regulär), `write_atomic`, Snapshot-Rücknahme, Geister-Eintrag,
+  Slot-Sicherung, Busy-Guard beim Anlegen (keine verschachtelte Belegung), Beenden/Update-Warten
+  (Start-Vorgang endet in Sekunden, ein laufendes `savevm` bricht mit dem Engine-Ende ab).
+
+### Testlauf
+
+`cargo test --workspace` (core 50, App 16, 1 ignoriert), `pnpm test:ui` 4/4, `pnpm build` grün.

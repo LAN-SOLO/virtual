@@ -101,6 +101,9 @@ pub fn host_notes(m: &Machine, ctx: &HostContext) -> Vec<String> {
             n.push("Gemeinsame Ordner: SMB-Freigabe übersprungen — Samba (smbd) fehlt bzw. Windows-Host.".into());
         } else if m.network.mode != NetworkMode::Off && !smb && !ninep {
             n.push("Gemeinsame Ordner: SMB-Freigaben sind immer beschreibbar — der Ordner ist schreibgeschützt eingestellt und wird nicht freigegeben (zum Freigeben unter Hardware „Gemeinsame Ordner schreibgeschützt“ und am Ordner „nur lesen“ abschalten).".into());
+        } else if m.network.mode != NetworkMode::Off && !smb {
+            // 9p hängt den Ordner schreibgeschützt ein — Gäste ohne 9p (Windows) sehen ihn aber nicht mehr
+            n.push("Gemeinsame Ordner: keine SMB-Freigabe für den schreibgeschützten Ordner (SMB-Freigaben sind immer beschreibbar) — virtio-9p hängt ihn schreibgeschützt ein; Gäste ohne 9p (z. B. Windows) sehen ihn nicht.".into());
         }
         if !ninep && !smb {
             n.push("Gemeinsame Ordner sind für diese Maschine nicht eingehängt (virtio-9p braucht den virtio-Bus, SMB ein Netz).".into());
@@ -773,6 +776,26 @@ mod tests {
         m.shared_folders[0].read_only = false;
         assert!(qemu_argv(&m, &ctx(None)).unwrap().iter().any(|x| x.ends_with(",smb=/data")));
         assert!(host_notes(&m, &ctx(None)).is_empty());
+    }
+
+    /// Aktuelles Profil (virtio-Bus, z. B. Windows 11) mit Netz und Samba: bis Runde 3 bekam auch
+    /// ein „nur lesen“-Ordner die SMB-Freigabe (Windows-Gäste haben kein 9p). Sie entfällt jetzt —
+    /// das Log muss es sagen, sonst verschwindet der Ordner für Windows-Gäste kommentarlos.
+    #[test]
+    fn dropped_smb_share_is_noted_even_with_9p() {
+        let mut m = machine("modern-x86-uefi");
+        m.tpm = false;
+        m.network.mode = NetworkMode::Nat;
+        m.shared_folders.push(SharedFolder { host_path: "/data".into(), name: "data".into(), read_only: true });
+        let a = qemu_argv(&m, &ctx(Some("hvf"))).unwrap();
+        assert!(!a.iter().any(|x| x.contains("smb=")));
+        assert!(a.iter().any(|x| x.contains("virtio-9p-pci")), "9p bleibt: {a:?}");
+        let notes = host_notes(&m, &ctx(Some("hvf")));
+        assert!(notes.iter().any(|n| n.contains("keine SMB-Freigabe")), "{notes:?}");
+        // Beschreibbarer Ordner: SMB wie bisher, kein Hinweis
+        m.shared_folders[0].read_only = false;
+        assert!(qemu_argv(&m, &ctx(Some("hvf"))).unwrap().iter().any(|x| x.ends_with(",smb=/data")));
+        assert!(host_notes(&m, &ctx(Some("hvf"))).is_empty());
     }
 
     #[test]
