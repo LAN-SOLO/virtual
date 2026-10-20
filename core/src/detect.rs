@@ -46,6 +46,17 @@ pub fn accel_for(host: HostOs, host_arch: Arch, guest: Arch) -> Option<&'static 
     })
 }
 
+/// Beschleuniger für eine Maschine: nur aktuelle Gäste (Kategorie `modern`) werden
+/// virtualisiert. Retro-Profile laufen immer emuliert (TCG) — auch auf x86-Hosts, wo
+/// i386 beschleunigt ginge: Mit HVF/WHPX griffe die Taktbremse (`-icount`) nicht, und
+/// Windows 95 scheitert auf schnellen CPUs am Timer (Schutzfehler beim Start).
+pub fn accel_for_machine(host: HostOs, host_arch: Arch, guest: Arch, category: &str) -> Option<&'static str> {
+    if category != "modern" {
+        return None;
+    }
+    accel_for(host, host_arch, guest)
+}
+
 /// Anzeige-Backend je Host (QEMU `-display`).
 pub fn display_backend(host: HostOs) -> &'static str {
     match host {
@@ -198,6 +209,11 @@ mod tests {
         assert_eq!(accel_for(HostOs::Linux, Arch::X86_64, Arch::I386), Some("kvm"));
         assert_eq!(accel_for(HostOs::Windows, Arch::X86_64, Arch::X86_64), Some("whpx"));
         assert_eq!(accel_for(HostOs::Linux, Arch::X86_64, Arch::M68k), None);
+        // Retro-PC auf Windows/Intel-Mac: emuliert, damit Taktbremse und Timer stimmen
+        assert_eq!(accel_for_machine(HostOs::Windows, Arch::X86_64, Arch::I386, "retro-pc"), None);
+        assert_eq!(accel_for_machine(HostOs::MacOs, Arch::X86_64, Arch::I386, "retro-pc"), None);
+        assert_eq!(accel_for_machine(HostOs::Windows, Arch::X86_64, Arch::X86_64, "modern"), Some("whpx"));
+        assert_eq!(accel_for_machine(HostOs::MacOs, Arch::Aarch64, Arch::Aarch64, "modern"), Some("hvf"));
     }
 
     #[test]

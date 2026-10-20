@@ -269,6 +269,8 @@ export const api = {
   openPath: (path: string) => call<void>('open_path', { path }),
   /** Laufende Engines hart beenden und die App schließen (nach Bestätigung). */
   quitApp: () => call<void>('quit_app'),
+  /** Läuft gerade ein Vorgang (Snapshot, Wandlung, Anlegen, Löschen)? */
+  busyOps: () => call<boolean>('busy_ops'),
   checkUpdate: () => call<UpdateInfo | null>('check_update'),
   installUpdate: () => call<void>('install_update'),
 

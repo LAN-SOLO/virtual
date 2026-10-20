@@ -82,7 +82,7 @@ mod unix {
             return None;
         }
         let host = HostOs::current();
-        let accel = detect::accel_for(host, detect::host_arch(), m.arch).map(String::from);
+        let accel = detect::accel_for_machine(host, detect::host_arch(), m.arch, &m.category).map(String::from);
         let bin = which(m.arch.qemu_binary()?)?;
         let prefix = bin.parent().and_then(|p| p.parent()).unwrap().to_string_lossy().into_owned();
         let bin_dir = bin.parent().unwrap().to_string_lossy().into_owned();

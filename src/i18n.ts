@@ -147,13 +147,13 @@ const de = {
   biosOk: '// BIOS-Dateien vollständig.',
   biosMissing: 'Fehlende BIOS-Dateien im System-Ordner:',
   biosHint: '// Der System-Ordner steht in den Einstellungen → Engines. Dateien dort ablegen, dann Maschine starten.',
-  mediaHintQemu: '// Medien wirken beim nächsten Start. CDs: ISO, NRG, BIN/CUE, MDF/MDS, CCD/IMG — was QEMU nicht direkt liest, wird beim Einlegen als ISO in den Maschinenordner gewandelt. Diskettenabbilder: IMG/IMA (schreibgeschützt eingelegt, damit Snapshots möglich bleiben).',
+  mediaHintQemu: '// Medien wirken beim nächsten Start. CDs: ISO, NRG, BIN/CUE, MDF/MDS, CCD/IMG — was QEMU nicht direkt liest, wird beim Einlegen als ISO in den Maschinenordner gewandelt. Diskettenabbilder: IMG/IMA/DSK/VFD (schreibgeschützt eingelegt, damit Snapshots möglich bleiben).',
 
   // network
   netMode: 'Modus',
   netOff: 'aus — kein Netzwerkgerät',
   netOffHint: '// Standard für alte Systeme: Kein Netz, kein Risiko.',
-  netIsolated: 'isoliert — nur der Host, nie das LAN',
+  netIsolated: 'isoliert — nur Weiterleitungen, kein LAN, kein Internet',
   netIsolatedHint: '// SLIRP mit restrict=on: Der Gast erreicht nichts außer Weiterleitungen und Freigaben.',
   netNat: 'NAT — Internet über den Host',
   netNatHint: '// Der Gast kommt raus, von außen kommt nichts rein (außer Weiterleitungen).',
@@ -171,7 +171,7 @@ const de = {
   shareRo: 'nur lesen',
   addShare: 'Ordner freigeben',
   noShares: 'Keine gemeinsamen Ordner.',
-  sharesHint: '// virtio-9p für Gäste am virtio-Bus (mount -t 9p <name>; nicht unter Windows). Alte Gäste: SMB-Freigabe des Gast-Netzes (erste Freigabe, braucht Samba: brew install samba bzw. apt install samba; nicht unter Windows). Was der Host nicht kann, steht beim Start im Log.',
+  sharesHint: '// virtio-9p für Gäste am virtio-Bus (mount -t 9p -o trans=virtio <name> /mnt; nicht unter Windows). Alte Gäste: SMB-Freigabe des Gast-Netzes (erste Freigabe, immer beschreibbar — schreibgeschützte Ordner gibt virtual per SMB nicht frei; braucht Samba: brew install samba bzw. apt install samba; nicht unter Windows). Was der Host nicht kann, steht beim Start im Log.',
   netConsoleHint: '// Konsolen laufen offline. Netplay ist deaktiviert.',
 
   // snapshots
@@ -231,19 +231,21 @@ const de = {
   accentEmerald: 'Smaragd',
   accentViolet: 'Violett',
   accentAmber: 'Bernstein',
-  confirmDangerous: 'Vor Löschen und hartem Stopp nachfragen',
+  confirmDangerous: 'Vor Löschen, Wiederherstellen und hartem Stopp nachfragen',
   confirmUpdateRunning: (n: number) =>
     n === 1
       ? 'Eine Maschine läuft noch. Das Update beendet sie hart und startet virtual neu. Nicht gespeicherte Daten im Gast gehen verloren. Trotzdem installieren?'
       : `${n} Maschinen laufen noch. Das Update beendet sie hart und startet virtual neu. Nicht gespeicherte Daten in den Gästen gehen verloren. Trotzdem installieren?`,
-  confirmQuitBusy: 'Ein Vorgang läuft noch (Snapshot, Medium oder Löschen). virtual trotzdem beenden? Der Vorgang wird dann nicht sauber abgeschlossen.',
+  confirmQuitBusy: 'Ein Vorgang läuft noch (Snapshot, Medium, Anlegen oder Löschen). virtual wartet bis zu 60 Sekunden, bis er fertig ist, und beendet sich dann. Jetzt beenden?',
+  confirmUpdateBusy: 'Ein Vorgang läuft noch (Snapshot, Medium, Anlegen oder Löschen). Das Update wartet bis zu 60 Sekunden darauf und startet virtual dann neu. Trotzdem installieren?',
+  quitWaiting: 'virtual beendet sich, sobald der laufende Vorgang fertig ist (höchstens 60 s) …',
   confirmQuit: (n: number) =>
     n === 1
       ? 'Eine Maschine läuft noch. virtual beenden und sie hart stoppen? Nicht gespeicherte Daten im Gast gehen verloren.'
       : `${n} Maschinen laufen noch. virtual beenden und alle hart stoppen? Nicht gespeicherte Daten in den Gästen gehen verloren.`,
   nestedToggle: 'Tarif nested aktivieren',
   nestedExplain:
-    'nested (12 € im Jahr) bringt die komplette Hardware-Bibliothek, Snapshot-Bäume, Klone, Headless-Betrieb, CLI und freie Engine-Argumente. Im Vorabzugang gibt es keine Lizenzprüfung — einfach umschalten.',
+    'nested (12 € im Jahr) soll die komplette Hardware-Bibliothek, Snapshot-Bäume, Klone und eine CLI bringen. In Version 1.0 schaltet der Tarif davon nur die freien Engine-Argumente (Hardware → „Zusätzliche Argumente“) frei; der Rest folgt. Im Vorabzugang gibt es keine Lizenzprüfung — einfach umschalten.',
   enginesIntro:
     '// virtual führt Engines als separate Prozesse aus: QEMU für PCs und andere Architekturen, RetroArch für Konsolen, swtpm für TPM. Gefunden wird in PATH und an den üblichen Orten — oder hier von Hand gesetzt.',
   engineFound: 'gefunden',
@@ -427,12 +429,12 @@ const en: Dict = {
   biosOk: '// BIOS files complete.',
   biosMissing: 'Missing BIOS files in the system folder:',
   biosHint: '// The system folder is set under Settings → Engines. Put the files there, then start the machine.',
-  mediaHintQemu: '// Media take effect on the next start. CDs: ISO, NRG, BIN/CUE, MDF/MDS, CCD/IMG — anything QEMU cannot read directly is converted to ISO in the machine folder when inserted. Floppy images: IMG/IMA (inserted read-only so snapshots keep working).',
+  mediaHintQemu: '// Media take effect on the next start. CDs: ISO, NRG, BIN/CUE, MDF/MDS, CCD/IMG — anything QEMU cannot read directly is converted to ISO in the machine folder when inserted. Floppy images: IMG/IMA/DSK/VFD (inserted read-only so snapshots keep working).',
 
   netMode: 'Mode',
   netOff: 'off — no network device',
   netOffHint: '// Default for old systems: no network, no risk.',
-  netIsolated: 'isolated — only the host, never the LAN',
+  netIsolated: 'isolated — forwards only, no LAN, no internet',
   netIsolatedHint: '// SLIRP with restrict=on: the guest reaches nothing except forwards and shares.',
   netNat: 'NAT — internet via the host',
   netNatHint: '// The guest can get out, nothing gets in (except forwards).',
@@ -450,7 +452,7 @@ const en: Dict = {
   shareRo: 'read-only',
   addShare: 'Share folder',
   noShares: 'No shared folders.',
-  sharesHint: '// virtio-9p for guests on the virtio bus (mount -t 9p <name>; not on Windows). Old guests: SMB share of the guest network (first share, needs Samba: brew install samba or apt install samba; not on Windows). Whatever the host cannot do is noted in the log at start.',
+  sharesHint: '// virtio-9p for guests on the virtio bus (mount -t 9p -o trans=virtio <name> /mnt; not on Windows). Old guests: SMB share of the guest network (first share, always writable — virtual does not share read-only folders via SMB; needs Samba: brew install samba or apt install samba; not on Windows). Whatever the host cannot do is noted in the log at start.',
   netConsoleHint: '// Consoles run offline. Netplay is disabled.',
 
   snapshots: 'Snapshots',
@@ -506,19 +508,21 @@ const en: Dict = {
   accentEmerald: 'Emerald',
   accentViolet: 'Violet',
   accentAmber: 'Amber',
-  confirmDangerous: 'Confirm before deleting and force-stopping',
+  confirmDangerous: 'Confirm before deleting, restoring and force-stopping',
   confirmUpdateRunning: (n: number) =>
     n === 1
       ? 'A machine is still running. The update stops it hard and restarts virtual. Unsaved data in the guest is lost. Install anyway?'
       : `${n} machines are still running. The update stops them hard and restarts virtual. Unsaved data in the guests is lost. Install anyway?`,
-  confirmQuitBusy: 'An operation is still in progress (snapshot, medium or delete). Quit virtual anyway? The operation will then not complete cleanly.',
+  confirmQuitBusy: 'An operation is still in progress (snapshot, medium, create or delete). virtual waits up to 60 seconds for it to finish and then quits. Quit now?',
+  confirmUpdateBusy: 'An operation is still in progress (snapshot, medium, create or delete). The update waits up to 60 seconds for it and then restarts virtual. Install anyway?',
+  quitWaiting: 'virtual quits as soon as the running operation has finished (at most 60 s) …',
   confirmQuit: (n: number) =>
     n === 1
       ? 'A machine is still running. Quit virtual and force-stop it? Unsaved data in the guest will be lost.'
       : `${n} machines are still running. Quit virtual and force-stop them all? Unsaved data in the guests will be lost.`,
   nestedToggle: 'Enable the nested plan',
   nestedExplain:
-    'nested (€12 a year) brings the full hardware library, snapshot trees, clones, headless operation, CLI and free engine arguments. There is no license check during early access — just switch it on.',
+    'nested (€12 a year) is meant to bring the full hardware library, snapshot trees, clones and a CLI. In version 1.0 the plan unlocks only the free engine arguments (Hardware → “Extra arguments”); the rest follows. There is no license check during early access — just switch it on.',
   enginesIntro:
     '// virtual runs engines as separate processes: QEMU for PCs and other architectures, RetroArch for consoles, swtpm for TPM. They are searched in PATH and the usual places — or set here by hand.',
   engineFound: 'found',

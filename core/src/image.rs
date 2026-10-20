@@ -419,8 +419,16 @@ pub fn write_iso(analysis: &Analysis, dst: &Path) -> Result<Report, String> {
     let off = layout.data_offset as usize;
     let mut written = 0u64;
     for _ in 0..layout.sectors() {
-        if src.read_exact(&mut sector).is_err() {
-            break;
+        match src.read_exact(&mut sector) {
+            Ok(()) => {}
+            // Kürzere Quelle als angegeben (letzter Sektor unvollständig): bis hier wandeln
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            // Echter Lesefehler (Datenträger getrennt, gesperrter Bereich): kein halbes ISO als Erfolg
+            Err(e) => {
+                drop(out);
+                let _ = std::fs::remove_file(&tmp);
+                return Err(format!("{}: {e}", analysis.data_file.display()));
+            }
         }
         if let Err(e) = out.write_all(&sector[off..off + ISO_SECTOR as usize]) {
             drop(out);
@@ -664,6 +672,35 @@ mod tests {
         let out = d.join("alc.iso");
         write_iso(&a, &out).unwrap();
         assert_eq!(std::fs::read(&out).unwrap(), data);
+    }
+
+    /// Schreibgeschützter Zielordner bzw. volle Platte: Fehler, keine `.iso.part`, kein halbes ISO.
+    #[cfg(unix)]
+    #[test]
+    fn write_iso_into_read_only_or_full_target_leaves_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempdir("write_iso_ro");
+        let bin = d.join("loose.bin");
+        std::fs::write(&bin, raw_sectors(&iso_data(), 1)).unwrap();
+        let a = analyze(&bin).unwrap();
+        let ro = d.join("ro");
+        std::fs::create_dir_all(&ro).unwrap();
+        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let err = write_iso(&a, &ro.join("x.iso")).unwrap_err();
+        assert!(err.contains("x.iso.part"), "{err}");
+        assert_eq!(std::fs::read_dir(&ro).unwrap().count(), 0);
+        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Volle Platte: nur mit einem kleinen Volume (z. B. RAM-Disk) — VIRTUAL_FULL_DIR=/Volumes/…
+        if let Ok(full) = std::env::var("VIRTUAL_FULL_DIR") {
+            let big = d.join("big.bin");
+            let data: Vec<u8> = iso_data().into_iter().cycle().take(8 << 20).collect();
+            std::fs::write(&big, raw_sectors(&data, 1)).unwrap();
+            let a = analyze(&big).unwrap();
+            let dst = Path::new(&full).join("full.iso");
+            let err = write_iso(&a, &dst).unwrap_err();
+            eprintln!("volle Platte: {err}");
+            assert!(!dst.exists() && !dst.with_extension("iso.part").exists());
+        }
     }
 
     #[test]

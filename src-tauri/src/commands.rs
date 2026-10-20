@@ -81,7 +81,9 @@ fn media_kind_for(path: &str, engine: Engine) -> MediaKind {
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
-    if matches!(ext.as_str(), "img" | "ima" | "dsk" | "vfd" | "flp") {
+    // `.img` ist auch CloneCD bzw. ein roher CD-Abzug: Disketten sind höchstens 2,88 MB groß
+    let floppy_sized = || std::fs::metadata(path).map(|m| m.len() <= 2_949_120).unwrap_or(true);
+    if matches!(ext.as_str(), "img" | "ima" | "dsk" | "vfd" | "flp") && floppy_sized() {
         MediaKind::Floppy
     } else {
         MediaKind::Cdrom
@@ -225,9 +227,13 @@ fn create_machine_blocking(st: &Shared, input: CreateMachineInput) -> Result<Mac
         ));
     }
     let base = st.machines_dir();
+    let new_id = uuid::Uuid::new_v4().to_string();
+    // Anlegen (qemu-img create, ggf. minutenlange CD-Wandlung) zählt als Vorgang:
+    // Beenden fragt dann nach und wartet, statt einen halben Ordner zu hinterlassen
+    let _busy = st.begin(&new_id, Op::Media)?;
     let dir = store::create_machine_dir(&base, name)?;
     let now = now_iso();
-    let mut m = profile.instantiate(&uuid::Uuid::new_v4().to_string(), name, &now);
+    let mut m = profile.instantiate(&new_id, name, &now);
 
     if profile.engine == Engine::Qemu && input.disk_gb > 0 {
         let disk = DiskRef { id: uuid::Uuid::new_v4().to_string(), size_gb: input.disk_gb, ..DiskRef::default() };
@@ -555,9 +561,11 @@ pub async fn create_snapshot(st: State<'_, Shared>, id: String, name: String, no
         match m.engine {
             Engine::Qemu => qemu::create_snapshot(&m, &dir, running.as_deref(), &settings, &name, &note),
             Engine::Libretro => {
-                let snap = lr::create_snapshot(&mut m, &dir, running.as_deref(), &name, &note)?;
+                // Slot-Stand auch nach einem Fehler sichern: RetroArch hat den Slot dann schon
+                // gewechselt, sonst zählte virtual beim nächsten Mal vom alten Slot aus
+                let res = lr::create_snapshot(&mut m, &dir, running.as_deref(), &name, &note);
                 store::save_machine(&dir, &m)?;
-                Ok(snap)
+                res
             }
         }
     })
@@ -583,8 +591,9 @@ pub async fn restore_snapshot(st: State<'_, Shared>, id: String, snapshot_id: St
         match m.engine {
             Engine::Qemu => qemu::restore_snapshot(&m, &dir, running.as_deref(), &settings, &snap),
             Engine::Libretro => {
-                lr::restore_snapshot(&mut m, running.as_deref(), &snap)?;
-                store::save_machine(&dir, &m)
+                let res = lr::restore_snapshot(&mut m, running.as_deref(), &snap);
+                store::save_machine(&dir, &m)?;
+                res
             }
         }
     })
@@ -670,13 +679,30 @@ pub fn open_path(app: AppHandle, st: State<'_, Shared>, path: String) -> Result<
     }
 }
 
-/// Beenden nach Bestätigung in der Oberfläche: laufende Engines hart stoppen.
+/// Höchstens so lange warten Beenden und Update auf laufende Vorgänge.
+const QUIT_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Laufen Vorgänge (Snapshot, Wandlung, Löschen, Anlegen)? Für die Nachfrage beim Update.
+#[tauri::command]
+pub fn busy_ops(st: State<'_, Shared>) -> bool {
+    st.any_busy()
+}
+
+/// Beenden nach Bestätigung in der Oberfläche: laufende Engines hart stoppen, dann
+/// auf laufende Vorgänge warten (max. 60 s) — ein `qemu-img snapshot` einer gestoppten
+/// Maschine schreibt sonst nur halb in die Platte bzw. fehlt danach in der Liste.
+/// Ein Snapshot einer laufenden Maschine bricht mit dem Ende der Engine sofort ab.
 #[tauri::command]
 pub fn quit_app(app: AppHandle, st: State<'_, Shared>) {
     for (_, r) in st.runtime.lock().unwrap().drain() {
         r.kill();
     }
-    app.exit(0);
+    let st = st.inner().clone();
+    // Nicht im UI-Thread warten (synchrone Kommandos laufen dort)
+    std::thread::spawn(move || {
+        st.wait_idle(QUIT_WAIT);
+        app.exit(0);
+    });
 }
 
 #[tauri::command]
@@ -714,6 +740,10 @@ pub async fn install_update(app: AppHandle, st: State<'_, Shared>) -> Result<(),
     for r in running {
         r.kill();
     }
+    // Laufende Vorgänge (qemu-img, Wandlung) erst zu Ende kommen lassen: Der
+    // Windows-Installer beendet virtual sofort und schnitte sie sonst ab.
+    let idle = st.inner().clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || idle.wait_idle(QUIT_WAIT)).await;
     update.install(bytes).map_err(|e| format!("Update fehlgeschlagen: {e}"))?;
     app.restart();
 }
@@ -761,6 +791,22 @@ mod tests {
         assert_eq!(prepare_cd_image(&vm, &base.join("cd1/disc.bin").to_string_lossy()).unwrap(), "disc.iso");
         assert!(!vm.join("disc-3.iso").exists());
         // reine ISO bleibt, wo sie ist
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn wizard_media_kind_by_extension_and_size() {
+        let base = tempdir("kind");
+        let fl = base.join("dos622.img");
+        std::fs::write(&fl, vec![0u8; 1_474_560]).unwrap();
+        assert_eq!(media_kind_for(&fl.to_string_lossy(), Engine::Qemu), MediaKind::Floppy);
+        // CloneCD-IMG bzw. roher CD-Abzug (> 2,88 MB) ist eine CD, keine Diskette
+        let cd = base.join("game.img");
+        std::fs::write(&cd, vec![0u8; 3 * 1024 * 1024]).unwrap();
+        assert_eq!(media_kind_for(&cd.to_string_lossy(), Engine::Qemu), MediaKind::Cdrom);
+        assert_eq!(media_kind_for("/x/disk.VFD", Engine::Qemu), MediaKind::Floppy);
+        assert_eq!(media_kind_for("/x/win98.iso", Engine::Qemu), MediaKind::Cdrom);
+        assert_eq!(media_kind_for("/x/game.img", Engine::Libretro), MediaKind::Rom);
         let _ = std::fs::remove_dir_all(&base);
     }
 

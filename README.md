@@ -7,14 +7,17 @@ Virtuelle Maschinen für heute und für damals — lokal, ohne Konto, ohne Telem
 - **Emulation:** alte Systeme von DOS über Windows 95 bis Mac OS 9 auf der Hardware ihrer Zeit —
   passender Chipsatz, ISA-Sound, VGA, Diskette, gedrosselter Takt; auch für Architekturen, die
   der Host nicht hat (68k, PowerPC, MIPS, RISC-V).
-- **Maschinenprofile:** ein JSON beschreibt einen kompletten Rechner („PC 1996 — Pentium 133,
-  Sound Blaster 16, S3"). Betriebssystem wählen, Profil bestätigen, installieren.
-- **Sicher isoliert:** ungepatchte Alt-Systeme starten ohne Netz, mit schreibgeschützten
-  Ordnern und Wegwerf-Snapshot; isoliertes Gast-Netz mit Proxy, NAT und Bridged bewusst zuschaltbar.
-- **Free** bleibt kostenlos; **nested** (12 €/Jahr) bringt die komplette Hardware-Bibliothek,
-  Snapshot-Bäume, Klone, Headless-Betrieb und CLI.
+- **Maschinenprofile:** ein JSON beschreibt einen kompletten Rechner („PC 1996 — Pentium 133“:
+  Sound Blaster 16, Cirrus-VGA). Betriebssystem wählen, Profil bestätigen, installieren.
+- **Sicher isoliert:** ungepatchte Alt-Systeme starten ohne Netz und mit schreibgeschützten
+  Ordnern (eine SMB-Freigabe gibt es dann nicht — sie wäre immer beschreibbar), Wegwerf-Modus auf
+  Wunsch; isoliertes Gast-Netz (nur Weiterleitungen/Freigaben) und NAT bewusst zuschaltbar
+  (Bridged folgt später und verhält sich bis dahin wie NAT).
+- **Free** bleibt kostenlos; **nested** (12 €/Jahr) soll die komplette Hardware-Bibliothek,
+  Snapshot-Bäume, Klone, Headless-Betrieb und eine CLI bringen (in 1.0 noch nicht enthalten;
+  im Vorabzugang schaltet der Tarif nur die freien Engine-Argumente frei).
 
-virtual ist ein Orchestrator: Maschinen, Profile, Medien, Snapshots, Isolation, UI und CLI sind
+virtual ist ein Orchestrator: Maschinen, Profile, Medien, Snapshots, Isolation und UI sind
 eigener Code; die Ausführung übernehmen bewährte Engines (QEMU, später 86Box und Apples
 Virtualization.framework) als separate Prozesse. Details, Datenmodell und Roadmap: `VIRTUAL_PLAN.md`.
 
@@ -60,6 +63,13 @@ Anzeigetexte im Block `en` (Test: `every_builtin_profile_has_english_texts`).
 Vorgänge je Maschine (Start, Snapshot, Medium wandeln, Löschen, Speichern/Medium entfernen)
 belegen die Maschine über `AppState::begin` (`src-tauri/src/state.rs`); ein zweiter Vorgang
 wird abgelehnt. Steuerkommandos warten höchstens 3 s auf QMP, „Stopp erzwingen“ gar nicht.
+Beenden (`quit_app`) und Update (`install_update`) beenden die Engines und warten dann über
+`AppState::wait_idle` bis zu 60 s auf laufende Vorgänge (z. B. `qemu-img snapshot`), statt sie
+abzuschneiden; `busy_ops` sagt der Oberfläche, ob sie dafür nachfragen muss.
+
+Sicherheitshinweise: RetroArch lauscht mit seinem Kommando-Interface (UDP) auf allen
+Schnittstellen — virtual kann das nicht auf localhost beschränken (siehe `AUDIT-1.0.md`, Runde 3).
+Unter Windows läuft QMP über TCP 127.0.0.1 ohne Anmeldung; virtual hält die einzige Verbindung.
 
 Der Rust-Kern (`core/`, Crate `virtual-core`) ist Tauri-frei und testbar: Datenmodell,
 Maschinenprofile (`profiles/*.json`, eingebettet), QEMU-Kommandozeile als reine Funktion,

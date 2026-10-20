@@ -336,3 +336,120 @@ Handbuch (DE/EN, Abschnitt Version 1.0) und README sind ergänzt.
   - [ ] Beide: große NRG einlegen, während der Wandlung Hardware-Tab öffnen → „Speichern“ und „Entfernen“ gesperrt; nach Abschluss wieder frei.
 - Ein Update mit laufendem `qemu-img`-Snapshot einer gestoppten Maschine fragt nicht nach (nur laufende
   Maschinen werden gezählt); der Windows-Installer beendet virtual, `qemu-img` läuft weiter — wie beim Beenden.
+
+## Runde 3 (2026-10-20)
+
+Basis `f9e6258`. Ziel: jede Aussage in Handbuch (DE/EN), README und Oberflächentexten gegen den Code
+prüfen, Nutzerwege inklusive Fehlerfällen durchspielen, die Reste aus Runde 2 (Windows-QMP,
+`qemu-img` beim Beenden/Update) erledigen. „Ausgeführt“ = selbst laufen lassen; „gelesen“ = nur Code.
+
+### Testlauf
+
+| Was | Befehl | Ergebnis |
+| --- | --- | --- |
+| Rust-Kern + App | `cargo test --workspace` | core 49 (vorher 47) + App 15 (vorher 12) grün, 1 ignored = Live-Test |
+| QMP + Snapshots live | `cargo test -p virtual -- --ignored qemu_live --nocapture` | grün gegen `/opt/homebrew/bin/qemu-system-i386`; neu: gesperrte Platte, schreibgeschützter Ordner, verwaister Listeneintrag |
+| Volle Platte | `VIRTUAL_FULL_DIR=/Volumes/vfull cargo test … write_iso_into / save_into` auf einer 4-MB-RAM-Disk (`hdiutil attach -nomount ram://8192`) | grün: „No space left on device (os error 28)“, keine `.iso.part`/`.tmp`, altes `machine.json` unverändert |
+| Alle QEMU-Profile live | `cargo run -p virtual-core --example qemucheck` | 49 ok, 0 fehlgeschlagen |
+| Backend-Übersetzung | `pnpm test:ui` | 4/4 grün (neuer Log-Hinweis hat sein Muster) |
+| Windows-Typecheck | `cargo check --target x86_64-pc-windows-msvc --workspace --tests` (gestubbte MSVC-Header/`llvm-rc`, nichts gelinkt) | grün, ohne Warnungen |
+| Frontend | `pnpm build` | grün |
+| Clippy | `cargo clippy --workspace --all-targets` | nur die bekannten Stil-Warnungen, keine neue aus dieser Runde |
+| Oberfläche | headless Chromium + gemocktes IPC (Dialog-Plugin 2.7: `window.confirm` = Promise), 960×600, DE/EN × dunkel/hell × Windows/macOS | 23 Abläufe × 4 = 92/92 grün (6 neu), keine Konsolenfehler, kein Überlauf, keine fremdsprachigen Texte |
+
+### Falsche Aussagen — behoben
+
+1. **„Gemeinsame Ordner sind für Retro-Profile schreibgeschützt“ stimmte für alte Gäste nicht.** Alte
+   Gäste (IDE-Bus) bekommen Ordner nur per SLIRP-SMB, und QEMU schreibt dafür `read only=no` in die
+   smb.conf — das Häkchen „Gemeinsame Ordner schreibgeschützt“ (Standard aller Retro-Profile) und
+   „nur lesen“ am Ordner wurden ignoriert, der Gast konnte auf den Host-Ordner schreiben. Jetzt wird
+   ein schreibgeschützter Ordner nicht per SMB freigegeben, das Log nennt den Grund; wer schreiben
+   lassen will, schaltet den Schutz bewusst ab. Test `smb_share_never_writable_when_read_only_is_wanted`.
+2. **„Retro-Profile laufen ohne Beschleuniger (TCG)“ stimmte auf Windows und Intel-Macs nicht.** Der
+   Beschleuniger hing nur an der Architektur: i386-Retro-Profile (486, Pentium 133, P III, XP) liefen
+   dort mit WHPX/HVF — die Taktbremse (`-icount`, TCG-only) wurde still übergangen, Windows 95 droht auf
+   schnellen CPUs am Timer zu scheitern. Jetzt virtualisiert nur die Kategorie „modern“
+   (`detect::accel_for_machine`, Test in `accel_matches_host`). Auf Apple Silicon ändert sich nichts.
+3. **RetroArch-Steuerung „UDP, nur localhost“.** Ausgeführt: RetroArch 1.22.2 mit
+   `network_cmd_enable` → `lsof` zeigt `UDP *:<port>` — RetroArch lauscht auf **allen** Schnittstellen,
+   ohne Anmeldung; andere Rechner im LAN könnten Beenden/Spielstand laden schicken. virtual sendet nur
+   an 127.0.0.1, kann die Bindung aber nicht einschränken (RetroArch hat keine Option dafür). Text in
+   Handbuch (Konsolen, Isolation) und README korrigiert, Firewall-Hinweis; Port bleibt zufällig je Start.
+4. **Netz „isoliert — nur der Host“.** `restrict=on` trennt den Gast auch vom Host; erreichbar sind nur
+   Weiterleitungen und Freigaben. Auswahltext, Tutorial (DE/EN) korrigiert.
+5. **Tarif nested „bringt Snapshot-Bäume, Klone, Headless, CLI“** (Einstellungen, Handbuch, README):
+   in 1.0 schaltet er nur die freien Engine-Argumente frei; Headless gibt es für alle. Als geplant
+   gekennzeichnet; README nannte außerdem eine CLI als vorhanden und ein „Gast-Netz mit Proxy“ — beides gibt es nicht.
+6. **Profil-Angaben:** „Retro-PC (486 bis Pentium 4)“ → bis Pentium III (XP-Profil = pentium3);
+   „PC 1996 — … S3“ → Cirrus-VGA; PC-Profile „Cirrus-VGA, SB16“ → Standard-VGA oder Cirrus, XP mit AC97;
+   „beta“-Liste ohne Dreamcast/Saturn; Mega-CD-/PC-Engine-CD-BIOS als optional gekennzeichnet (die
+   Profile verlangen sie nicht, „Medien“ meldet sie nicht).
+7. **Kleinere:** „Hardware → Takt“ heißt „Taktbremse“; Windows 9x „von A: starten“ braucht
+   „Booten von → Diskette“ (automatisch bootet die CD zuerst); Einstellung „Vor Löschen und hartem
+   Stopp nachfragen“ gilt auch für Wiederherstellen/Snapshot löschen (Text ergänzt); RetroArch-Menü-Pause
+   wird nicht erkannt (jetzt im Handbuch); `mount -t 9p` ohne `-o trans=virtio`; Assistent bot `.vfd`
+   nicht an, Medien-Hinweis nannte nur IMG/IMA.
+
+### Weitere Fehler — behoben
+
+8. **Beenden/Update schnitten `qemu-img` ab bzw. fragten beim Update nicht (Rest aus Runde 2).**
+   `quit_app` und `install_update` beenden die Engines und warten dann bis zu 60 s auf laufende
+   Vorgänge (`AppState::wait_idle`) — ein Offline-Snapshot/-Wiederherstellen schreibt die qcow2 zu Ende
+   (ein abgebrochenes `snapshot -a` kann die aktive L1-Tabelle halb überschreiben), die Liste stimmt.
+   Hängt ein Vorgang länger, beendet sich virtual trotzdem; `qemu-img` wird bewusst *nicht* getötet und
+   läuft dann allein zu Ende. Das Update fragt jetzt auch, wenn nur ein Vorgang läuft (`busy_ops`);
+   die Oberfläche meldet beim Beenden „wartet auf Vorgang“. Anlegen einer Maschine (qemu-img create,
+   ggf. CD-Wandlung) zählt als Vorgang. Test `quit_waits_for_running_operations`, UI-Abläufe
+   `quitWhileBusy`, `updateWhileBusy`.
+9. **Lesefehler beim Wandeln ergaben ein halbes ISO als Erfolg** (`read_exact` → `break` bei jedem
+   Fehler, Markierung „aktuell“ geschrieben, beim nächsten Einlegen wiederverwendet). Jetzt bricht nur
+   ein Dateiende ab, echte Lesefehler (USB getrennt, gesperrter Bereich) melden einen Fehler.
+10. **Volle Platte hinterließ `machine.tmp`/`snapshots.tmp`** (`write_atomic` räumte nur beim
+    Umbenennen auf). Behoben, auf RAM-Disk geprüft.
+11. **Snapshot ohne schreibbare Liste blieb unsichtbar in der Platte** (Ordner schreibgeschützt, Platte
+    voll): wird jetzt zurückgenommen (`qemu-img snapshot -d` bzw. `delvm`). **Listeneintrag ohne
+    Snapshot in der Platte ließ sich nie löschen** („snapshot not found“): wird jetzt entfernt. Beides live.
+12. **Konsolen-Slot nach Fehler verschoben:** Scheiterte ein Save State (Timeout), hatte RetroArch den
+    Slot schon gewechselt, `machine.json` aber nicht — die nächsten Slots zählten falsch. Der Slot wird
+    jetzt auch im Fehlerfall gespeichert (gelesen, kein RetroArch-Lauf).
+13. **Assistent: `.img` war immer Diskette** — ein CloneCD-IMG oder roher CD-Abzug wurde als Diskette
+    eingelegt. Über 2,88 MB gilt `.img` jetzt als CD (wird wie gewohnt gewandelt). Test.
+
+### Windows-QMP (Rest aus Runde 1/2) — bewertet, nicht umgebaut
+
+- `-chardev pipe` (Named Pipe): QEMU legt die Pipe mit einer Instanz an und nimmt danach keinen
+  neuen Client an; Rust-std kann auf einer Pipe-Datei keinen Lese-Timeout setzen (die 3-s-/15-min-
+  Fristen der Steuerung hingen daran). Gewinn gegenüber TCP gering (die Standard-DACL einer Pipe gibt
+  allen Konten Lesezugriff), Risiko hoch und vom Mac aus nicht prüfbar → nicht umgesetzt.
+- Token je Start: QMP kennt keine Anmeldung; TLS-PSK (`tls-creds-psk`) kann rustls nicht → nicht möglich.
+- Was schützt: Port zufällig je Start (`free_port`), und virtual hält die eine Verbindung, die QEMU
+  bedient. Ausgeführt gegen QEMU 11.1.1: Ein zweiter Client bekommt keine Begrüßung und keine Antwort,
+  solange der erste verbunden ist (erst nach dessen Trennung). Restrisiko: ein lokales Programm, das
+  in den Millisekunden zwischen QEMU-Start und Verbindung zuvorkommt — virtual zeigt dann „Keine
+  QMP-Steuerung“. Bleibt „Offen (niedrig)“; im Handbuch so beschrieben.
+
+### Nutzerwege (ausgeführt)
+
+| Weg | Wie | Ergebnis |
+| --- | --- | --- |
+| Erster Start, Übersicht, alle Reiter | UI-Mock `start`, `overview`, `tabs` (DE/EN) | grün |
+| Maschine im Assistenten mit Medium anlegen | UI `wizardCreateWithMedium` (Filter mit `.vfd`, Zusammenfassung, `create_machine`-Argumente); Rust `wizard_media_kind_by_extension_and_size` | grün |
+| Medium einlegen: Fehler, abgebrochener Dialog, Sperren während Wandlung | UI `attachError`, `cancelledDialog`, `attachLocksEditing` | grün; Abbruch ruft nichts auf |
+| Start, Pause, Engine beschäftigt | UI `startAndPauseBusy`; live `qemu_live` (stop/cont/reset) | grün |
+| Snapshot anlegen/zurück/löschen, offline und laufend | live `qemu_live`; UI `snapshotCreate`, `snapshotRestoreConfirm`, `forceStopDuringSnapshot` | grün |
+| Gesperrte Platte (App neu gestartet, QEMU läuft verwaist) | live: Offline-Snapshot → „Failed to get "write" lock“, Liste unverändert | grün |
+| Schreibgeschützter Ordner | Rust: Wandlung, `machine.json`, Snapshot-Liste (live mit Rücknahme) | grün |
+| Volle Platte | RAM-Disk: Wandlung und `machine.json` | grün |
+| Beenden während Maschine/Vorgang, Update während Vorgang | UI `closeRequested`, `quitWhileBusy`, `updateWhileRunning`, `updateWhileBusy`; Rust `quit_waits_for_running_operations` | grün |
+| Einstellungen, Kürzel, Handbuch DE/EN | UI `settings`, `help`, `helpRound3` (Suche, gleiche Abschnitte DE/EN) | grün |
+
+Nur gelesen: Neustart mitten in einer Wandlung (`.iso.part` bleibt liegen, wird beim nächsten
+Einlegen überschrieben, ohne Herkunftsmarkierung nie wiederverwendet); RetroArch-Fehlerpfade.
+
+### Nur am Gerät prüfbar (zusätzlich)
+
+- [ ] Windows: Retro-PC-Profil (Pentium 133) starten → Kommandozeilen-Vorschau zeigt `accel=tcg` und `-icount`; Windows 95 bootet ohne Schutzfehler.
+- [ ] Windows: Windows-Firewall fragt beim ersten Konsolenstart nach RetroArch → „Abbrechen“; Steuerung aus virtual funktioniert trotzdem (localhost).
+- [ ] Beide: Snapshot einer gestoppten Maschine mit großer Platte, währenddessen schließen → Hinweis „wartet bis zu 60 s“, App beendet sich nach dem Snapshot, Snapshot steht nach Neustart in der Liste.
+- [ ] Beide: Update-Banner, während nur ein Offline-Snapshot läuft → eigene Nachfrage.
+- [ ] macOS mit Samba: Retro-Profil mit Ordner und Netz „isoliert“ → kein SMB, Hinweis im Log; „schreibgeschützt“ abschalten → `\\10.0.2.4\qemu` im Gast beschreibbar.

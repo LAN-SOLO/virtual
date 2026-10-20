@@ -185,12 +185,16 @@ export default function App() {
         const n = Object.values(statusRef.current).filter((s) => s.state !== 'stopped' && s.state !== 'error').length;
         // Nur ein Vorgang (z. B. Snapshot einer gestoppten Maschine) läuft: das sagen
         const text = n === 0 && busy ? tRef.current.confirmQuitBusy : tRef.current.confirmQuit(Math.max(1, n));
-        if (await onConfirm(text)) api.quitApp().catch(fail);
+        if (await onConfirm(text)) {
+          // Läuft noch ein Vorgang, wartet das Backend darauf — das sagen, statt still offen zu bleiben
+          if (busy) showToast(tRef.current.quitWaiting);
+          api.quitApp().catch(fail);
+        }
       })
       .then((f) => (off = f))
       .catch(() => {});
     return () => off?.();
-  }, [onConfirm, fail]);
+  }, [onConfirm, fail, showToast]);
 
   // Zustand laufender Maschinen nachführen (z. B. Pause über das Menü des Engine-Fensters)
   useEffect(() => {
@@ -285,6 +289,8 @@ export default function App() {
   const installUpdate = async () => {
     const n = Object.values(statusRef.current).filter((s) => s.state !== 'stopped' && s.state !== 'error').length;
     if (n > 0 && !(await onConfirm(t.confirmUpdateRunning(n)))) return;
+    // Nur ein Vorgang (z. B. qemu-img-Snapshot einer gestoppten Maschine): ebenfalls fragen
+    if (n === 0 && (await api.busyOps().catch(() => false)) && !(await onConfirm(t.confirmUpdateBusy))) return;
     setInstalling(true);
     api.installUpdate().catch((e) => {
       setInstalling(false);

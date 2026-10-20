@@ -65,6 +65,16 @@ pub fn secure_boot_active(m: &Machine, ctx: &HostContext) -> bool {
         && matches!(ctx.accel.as_deref(), None | Some("kvm"))
 }
 
+/// Ordner für die SLIRP-SMB-Freigabe: nur der erste, nur mit Netz und Samba — und nie,
+/// wenn er schreibgeschützt sein soll. QEMU schreibt `read only=no` in die smb.conf;
+/// eine schreibgeschützte SMB-Freigabe kann es nicht. Die Freigabe entfällt dann (Hinweis im Log).
+fn smb_folder<'a>(m: &'a Machine, ctx: &HostContext) -> Option<&'a SharedFolder> {
+    if m.network.mode == NetworkMode::Off || !ctx.smb {
+        return None;
+    }
+    m.shared_folders.first().filter(|s| !(s.read_only || m.isolation.read_only_shares))
+}
+
 /// Hinweise zu Einstellungen, die dieser Host nicht umsetzen kann — der Start
 /// protokolliert sie, statt still etwas anderes zu tun.
 pub fn host_notes(m: &Machine, ctx: &HostContext) -> Vec<String> {
@@ -83,12 +93,14 @@ pub fn host_notes(m: &Machine, ctx: &HostContext) -> Vec<String> {
     }
     if !m.shared_folders.is_empty() {
         let ninep = m.devices.storage_bus == "virtio" && ctx.virtfs;
-        let smb = m.network.mode != NetworkMode::Off && ctx.smb;
+        let smb = smb_folder(m, ctx).is_some();
         if m.devices.storage_bus == "virtio" && !ctx.virtfs {
             n.push("Gemeinsame Ordner: virtio-9p gibt es in QEMU für Windows nicht.".into());
         }
         if m.network.mode != NetworkMode::Off && !ctx.smb {
             n.push("Gemeinsame Ordner: SMB-Freigabe übersprungen — Samba (smbd) fehlt bzw. Windows-Host.".into());
+        } else if m.network.mode != NetworkMode::Off && !smb && !ninep {
+            n.push("Gemeinsame Ordner: SMB-Freigaben sind immer beschreibbar — der Ordner ist schreibgeschützt eingestellt und wird nicht freigegeben (Hardware → Isolation bzw. Häkchen am Ordner).".into());
         }
         if !ninep && !smb {
             n.push("Gemeinsame Ordner sind für diese Maschine nicht eingehängt (virtio-9p braucht den virtio-Bus, SMB ein Netz).".into());
@@ -416,11 +428,9 @@ pub fn qemu_argv(m: &Machine, ctx: &HostContext) -> Result<Vec<String>, String> 
                 // Nur an localhost binden: eine Weiterleitung öffnet den Gast nie ins LAN
                 net.push_str(&format!(",hostfwd={proto}:127.0.0.1:{}-:{}", f.host_port, f.guest_port));
             }
-            if ctx.smb {
-                if let Some(s) = m.shared_folders.first() {
-                    // SMB-Freigabe über SLIRP: für alte Gäste ohne virtio-9p — nur eine (SLIRP kann eine)
-                    net.push_str(&format!(",smb={}", qv(&s.host_path)));
-                }
+            if let Some(s) = smb_folder(m, ctx) {
+                // SMB-Freigabe über SLIRP: für alte Gäste ohne virtio-9p — nur eine (SLIRP kann eine)
+                net.push_str(&format!(",smb={}", qv(&s.host_path)));
             }
             push(&mut a, "-netdev");
             a.push(net);
@@ -742,6 +752,27 @@ mod tests {
         let a = qemu_argv(&m, &c).unwrap();
         assert!(!a.iter().any(|x| x.contains("smb=") || x == "-fsdev"));
         assert!(host_notes(&m, &c).len() >= 2);
+    }
+
+    #[test]
+    fn smb_share_never_writable_when_read_only_is_wanted() {
+        // Retro-Profil: IDE-Bus (kein 9p), Ordner laut Isolation schreibgeschützt
+        let mut m = machine("pc-1996-pentium133");
+        assert!(m.isolation.read_only_shares);
+        m.network.mode = NetworkMode::Isolated;
+        m.shared_folders.push(SharedFolder { host_path: "/data".into(), name: "data".into(), read_only: false });
+        let a = qemu_argv(&m, &ctx(None)).unwrap();
+        assert!(!a.iter().any(|x| x.contains("smb=")), "SMB kann nicht schreibschützen: {a:?}");
+        let notes = host_notes(&m, &ctx(None));
+        assert!(notes.iter().any(|n| n.contains("immer beschreibbar")), "{notes:?}");
+        // Häkchen am Ordner allein genügt ebenfalls
+        m.isolation.read_only_shares = false;
+        m.shared_folders[0].read_only = true;
+        assert!(!qemu_argv(&m, &ctx(None)).unwrap().iter().any(|x| x.contains("smb=")));
+        // Ausdrücklich beschreibbar: Freigabe wie bisher, kein Hinweis
+        m.shared_folders[0].read_only = false;
+        assert!(qemu_argv(&m, &ctx(None)).unwrap().iter().any(|x| x.ends_with(",smb=/data")));
+        assert!(host_notes(&m, &ctx(None)).is_empty());
     }
 
     #[test]

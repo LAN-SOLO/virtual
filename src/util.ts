@@ -93,7 +93,7 @@ export const CPU_OPTIONS: Record<string, string[]> = {
 
 export function extensionsForProfile(p: Profile): string[] {
   if (p.libretro) return p.libretro.extensions;
-  return ['iso', 'nrg', 'bin', 'cue', 'mdf', 'mds', 'ccd', 'img', 'ima', 'dsk', 'cdr', 'dmg', 'toast'];
+  return ['iso', 'nrg', 'bin', 'cue', 'mdf', 'mds', 'ccd', 'img', 'ima', 'dsk', 'vfd', 'cdr', 'dmg', 'toast'];
 }
 
 /** Eindeutigen Vorschlag für den Maschinennamen bilden. */

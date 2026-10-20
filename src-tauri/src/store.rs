@@ -15,7 +15,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| format!("Ordner anlegen fehlgeschlagen: {e}"))?;
     }
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
+    std::fs::write(&tmp, bytes).map_err(|e| {
+        // Volle Platte: keine halbe .tmp liegen lassen (das Original bleibt unberührt)
+        let _ = std::fs::remove_file(&tmp);
+        format!("Schreiben fehlgeschlagen: {e}")
+    })?;
     // Windows: Virenscanner/OneDrive halten die frische Datei kurz offen → wiederholen
     virtual_core::fsutil::rename_retry(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
@@ -203,5 +207,52 @@ mod tests {
         delete(&d1, true).unwrap();
         assert!(!d1.exists());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Schreibgeschützter Maschinenordner bzw. volle Platte: Fehlermeldung, das
+    /// vorhandene machine.json bleibt unverändert, keine .tmp-Reste.
+    #[cfg(unix)]
+    #[test]
+    fn save_into_read_only_or_full_folder_keeps_the_original() {
+        use std::os::unix::fs::PermissionsExt;
+        let check = |dir: &Path, fill: Option<&Path>| {
+            let mut m = Machine { id: "ro".into(), name: "Alt".into(), ..Machine::default() };
+            save_machine(dir, &m).unwrap();
+            if let Some(f) = fill {
+                // Platte bis zum letzten Byte füllen
+                use std::io::Write;
+                let mut file = std::fs::File::create(f).unwrap();
+                let block = vec![0u8; 64 * 1024];
+                while file.write_all(&block).is_ok() {}
+                let mut small = vec![0u8; 512];
+                while !small.is_empty() {
+                    if file.write_all(&small).is_err() {
+                        small.truncate(small.len() / 2);
+                    }
+                }
+                let _ = file.sync_all();
+            } else {
+                std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            }
+            m.name = "Neu".into();
+            m.notes = "x".repeat(256 * 1024);
+            let err = save_machine(dir, &m).unwrap_err();
+            assert!(err.starts_with("Schreiben fehlgeschlagen: "), "{err}");
+            assert_eq!(load_machine(dir).unwrap().name, "Alt");
+            assert!(!dir.join("machine.tmp").exists());
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        let base = tempdir();
+        check(&base, None);
+        let _ = std::fs::remove_dir_all(&base);
+        // Volle Platte nur mit einem kleinen Volume (RAM-Disk): VIRTUAL_FULL_DIR=/Volumes/…
+        if let Ok(full) = std::env::var("VIRTUAL_FULL_DIR") {
+            let dir = Path::new(&full).join("vm-full");
+            std::fs::create_dir_all(&dir).unwrap();
+            let filler = Path::new(&full).join("filler.bin");
+            check(&dir, Some(&filler));
+            let _ = std::fs::remove_file(&filler);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }

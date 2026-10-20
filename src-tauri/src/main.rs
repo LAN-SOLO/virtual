@@ -88,6 +88,7 @@ fn main() {
             commands::check_update,
             commands::install_update,
             commands::quit_app,
+            commands::busy_ops,
         ])
         // Schließen mit laufenden Maschinen: erst nachfragen (die Oberfläche zeigt den
         // Dialog und ruft `quit_app`), statt Gäste kommentarlos hart zu beenden.

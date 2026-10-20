@@ -64,6 +64,27 @@ impl AppState {
     }
 
 
+    /// Läuft gerade ein Vorgang (Snapshot, Wandlung, Löschen, Start, Anlegen)?
+    pub fn any_busy(&self) -> bool {
+        !self.busy.lock().unwrap().is_empty()
+    }
+
+    /// Wartet, bis kein Vorgang mehr läuft — höchstens `max`. `true` = alle fertig.
+    /// Beenden und Update warten so auf ein laufendes `qemu-img` (Snapshot einer
+    /// gestoppten Maschine) bzw. eine Wandlung, statt es mitten im Schreiben abzuschneiden.
+    pub fn wait_idle(&self, max: std::time::Duration) -> bool {
+        let t0 = std::time::Instant::now();
+        loop {
+            if !self.any_busy() {
+                return true;
+            }
+            if t0.elapsed() >= max {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
     /// Ordner mit den Maschinenordnern — Einstellung oder App-Datenordner/machines.
     pub fn machines_dir(&self) -> PathBuf {
         let s = self.settings.lock().unwrap();
@@ -116,5 +137,29 @@ mod tests {
         assert!(st.begin("a", Op::Edit).err().expect("belegt").contains("Medium"));
         drop(conv);
         assert!(st.begin("a", Op::Edit).is_ok());
+    }
+
+    #[test]
+    fn quit_waits_for_running_operations() {
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+        let st = Arc::new(state());
+        assert!(st.wait_idle(Duration::from_millis(10)), "nichts belegt: sofort fertig");
+        // Vorgang endet nach 300 ms in einem anderen Thread → Warten endet danach
+        st.busy.lock().unwrap().insert("a".into(), Op::Snapshot);
+        let st2 = st.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            st2.busy.lock().unwrap().remove("a");
+        });
+        let t0 = Instant::now();
+        assert!(st.wait_idle(Duration::from_secs(5)));
+        assert!(t0.elapsed() >= Duration::from_millis(250));
+        t.join().unwrap();
+        // Hängt der Vorgang, gibt das Warten nach der Frist auf
+        let _g = st.begin("b", Op::Media).unwrap();
+        let t0 = Instant::now();
+        assert!(!st.wait_idle(Duration::from_millis(300)));
+        assert!(t0.elapsed() < Duration::from_secs(2));
     }
 }

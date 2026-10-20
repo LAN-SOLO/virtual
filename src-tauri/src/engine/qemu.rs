@@ -166,7 +166,7 @@ pub fn context(m: &Machine, dir: &Path, settings: &Settings, qmp_endpoint: Strin
     let bin = detect::find_qemu_binary(m.arch, settings)
         .ok_or_else(|| format!("{binary_name} nicht gefunden — {}", d::install_hint(HostOs::current(), "qemu")))?;
     let host = HostOs::current();
-    let accel = d::accel_for(host, d::host_arch(), m.arch).map(String::from);
+    let accel = d::accel_for_machine(host, d::host_arch(), m.arch, &m.category).map(String::from);
     let (uefi_code, uefi_vars_template) = if matches!(m.firmware, Firmware::Uefi | Firmware::UefiSecure) {
         // Secure-Boot-Firmware nur, wo sie mit SMM auch startet (TCG/KVM, q35)
         let secure = m.firmware == Firmware::UefiSecure
@@ -538,7 +538,15 @@ pub fn create_snapshot(m: &Machine, dir: &Path, running: Option<&Running>, setti
         tag,
     };
     snaps.push(snap.clone());
-    crate::store::save_snapshots(dir, &snaps)?;
+    if let Err(e) = crate::store::save_snapshots(dir, &snaps) {
+        // Liste nicht schreibbar (volle Platte, schreibgeschützter Ordner): den eben angelegten
+        // Snapshot wieder entfernen, statt ihn unsichtbar in der Platte zu lassen
+        let _ = match running {
+            Some(r) => with_qmp(r, |c| c.hmp(&format!("delvm {}", snap.tag))).map(|_| ()),
+            None => qemu_img(settings, &["snapshot", "-d", &snap.tag, &disk.to_string_lossy()]).map(|_| ()),
+        };
+        return Err(e);
+    }
     Ok(snap)
 }
 
@@ -558,9 +566,13 @@ pub fn delete_snapshot(m: &Machine, dir: &Path, running: Option<&Running>, setti
     let disk = first_disk(m, dir)?;
     match running {
         Some(r) => with_qmp(r, |c| c.hmp(&format!("delvm {}", snap.tag))).map(|_| ())?,
-        None => {
-            qemu_img(settings, &["snapshot", "-d", &snap.tag, &disk.to_string_lossy()])?;
-        }
+        None => match qemu_img(settings, &["snapshot", "-d", &snap.tag, &disk.to_string_lossy()]) {
+            Ok(_) => {}
+            // Steht in der Liste, fehlt aber in der Platte (Platte ersetzt, Abbruch beim Anlegen):
+            // Eintrag trotzdem entfernen — sonst ließe er sich nie mehr löschen
+            Err(e) if e.contains("snapshot not found") => {}
+            Err(e) => return Err(e),
+        },
     }
     let snaps: Vec<Snapshot> = crate::store::load_snapshots(dir).into_iter().filter(|s| s.id != snap.id).collect();
     crate::store::save_snapshots(dir, &snaps)
@@ -592,6 +604,21 @@ mod tests {
         restore_snapshot(&m, &dir, None, &settings, &snap).unwrap();
         delete_snapshot(&m, &dir, None, &settings, &snap).unwrap();
         assert!(crate::store::load_snapshots(&dir).is_empty());
+        // Listeneintrag ohne Snapshot in der Platte lässt sich trotzdem löschen
+        let ghost = Snapshot { id: "ghost".into(), tag: "vs-fehlt".into(), ..Snapshot::default() };
+        crate::store::save_snapshots(&dir, std::slice::from_ref(&ghost)).unwrap();
+        delete_snapshot(&m, &dir, None, &settings, &ghost).unwrap();
+        assert!(crate::store::load_snapshots(&dir).is_empty());
+        // Liste nicht schreibbar (Ordner schreibgeschützt): Fehler, kein unsichtbarer Snapshot in der Platte
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            let err = create_snapshot(&m, &dir, None, &settings, "ro", "").unwrap_err();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(err.starts_with("Schreiben fehlgeschlagen"), "{err}");
+            let list = qemu_img(&settings, &["snapshot", "-l", &dir.join("disk-0.qcow2").to_string_lossy()]).unwrap();
+            assert!(!list.contains("vs-"), "Snapshot zurückgenommen: {list}");
+        }
 
         // Laufend: QMP stop/cont/reset + HMP savevm/loadvm/delvm
         let endpoint = socket_path(&dir, "qmp.sock", &m.id).to_string_lossy().into_owned();
@@ -619,6 +646,11 @@ mod tests {
         refresh(&running);
         assert_eq!(running.state(), "running");
         reset(&running).unwrap();
+        // App neu gestartet, QEMU läuft verwaist weiter: Die App hält die Maschine für gestoppt
+        // und versucht einen Offline-Snapshot — die Platte ist gesperrt, Fehler statt Schaden
+        let err = create_snapshot(&m, &dir, None, &settings, "gesperrt", "").unwrap_err();
+        assert!(err.contains("lock"), "{err}");
+        assert!(crate::store::load_snapshots(&dir).is_empty());
         let snap = create_snapshot(&m, &dir, Some(&running), &settings, "live", "mit RAM").unwrap();
         assert_eq!(snap.kind, "internal");
         restore_snapshot(&m, &dir, Some(&running), &settings, &snap).unwrap();
