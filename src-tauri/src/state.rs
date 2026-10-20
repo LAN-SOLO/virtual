@@ -85,6 +85,25 @@ impl AppState {
         }
     }
 
+    /// Alle laufenden Engines hart beenden und aus der Liste nehmen.
+    pub fn kill_all(&self) {
+        let running: Vec<_> = self.runtime.lock().unwrap().drain().map(|(_, r)| r).collect();
+        for r in running {
+            r.kill();
+        }
+    }
+
+    /// Beenden/Update: Engines beenden, auf laufende Vorgänge warten (höchstens `max`),
+    /// danach erneut beenden — ein Start, der beim ersten Durchgang noch hochfuhr (oder
+    /// während der Wartezeit begonnen wurde), läuft sonst weiter. Der Windows-Updater
+    /// beendet virtual per `process::exit` ohne `RunEvent::Exit`: QEMU bliebe verwaist.
+    pub fn stop_engines_and_wait(&self, max: std::time::Duration) -> bool {
+        self.kill_all();
+        let idle = self.wait_idle(max);
+        self.kill_all();
+        idle
+    }
+
     /// Ordner mit den Maschinenordnern — Einstellung oder App-Datenordner/machines.
     pub fn machines_dir(&self) -> PathBuf {
         let s = self.settings.lock().unwrap();
@@ -161,5 +180,62 @@ mod tests {
         let t0 = Instant::now();
         assert!(!st.wait_idle(Duration::from_millis(300)));
         assert!(t0.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn engine_started_while_waiting_is_stopped_too() {
+        use crate::engine::{Control, Running};
+        use std::collections::VecDeque;
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+        let st = Arc::new(state());
+        // Eine Maschine fährt gerade hoch (Op::Start belegt), ihr Prozess kommt erst nach dem
+        // ersten Beenden-Durchgang in die Liste
+        st.busy.lock().unwrap().insert("a".into(), Op::Start);
+        let child = if cfg!(windows) {
+            crate::engine::command("ping").args(["-n", "60", "127.0.0.1"]).spawn()
+        } else {
+            crate::engine::command("sleep").arg("60").spawn()
+        }
+        .unwrap();
+        let child = Arc::new(Mutex::new(child));
+        let st2 = st.clone();
+        let c2 = child.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let r = Running {
+                child: c2,
+                pid: 0,
+                state: Arc::new(Mutex::new("running".into())),
+                error: Arc::new(Mutex::new(None)),
+                since: String::new(),
+                started: Instant::now(),
+                log: Arc::new(Mutex::new(VecDeque::new())),
+                control: Control::Qemu(Arc::new(Mutex::new(None))),
+                helpers: Arc::new(Mutex::new(Vec::new())),
+                sockets: vec![],
+            };
+            st2.runtime.lock().unwrap().insert("a".into(), Arc::new(r));
+            st2.busy.lock().unwrap().remove("a");
+        });
+        assert!(st.stop_engines_and_wait(Duration::from_secs(5)));
+        t.join().unwrap();
+        let leaked = !st.runtime.lock().unwrap().is_empty();
+        let mut c = child.lock().unwrap();
+        let t0 = Instant::now();
+        let mut exited = false;
+        while t0.elapsed() < Duration::from_secs(5) {
+            if c.try_wait().unwrap().is_some() {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if !exited {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+        assert!(!leaked, "nach dem Warten gestartete Engine bleibt in der Liste");
+        assert!(exited, "Engine-Prozess läuft nach dem Beenden weiter");
     }
 }

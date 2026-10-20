@@ -548,3 +548,39 @@ gegengeprüft (`qemu_argv`/`host_notes` alt gegen neu).
 ### Testlauf
 
 `cargo test --workspace` (core 50, App 16, 1 ignoriert), `pnpm test:ui` 4/4, `pnpm build` grün.
+
+## Runde 4 – Regressionen (platform, 2026-10-20)
+
+Geprüft: `f9e6258..39c266b` mit Blick auf Nebenläufigkeit, Plattform und Lebenszyklus (Beenden,
+Update, Busy-Guards, Windows-Zweige, DE/EN-Texte).
+
+### Gefunden und behoben
+
+1. **Windows-Update ließ QEMU verwaist laufen, wenn während des neuen 60-s-Wartens gestartet wurde.**
+   `install_update` beendete die Engines *vor* `wait_idle`; ein Start, der in dem Moment hochfuhr
+   (`Op::Start` — auf ihn wartet `wait_idle` ausdrücklich) oder in der Wartezeit begonnen wurde (die
+   Oberfläche sperrt Start während der Installation nicht), landete danach in der Liste und wurde nie
+   beendet. Der Windows-Updater beendet virtual per `std::process::exit(0)` ohne `RunEvent::Exit`
+   (tauri-plugin-updater, `updater.rs`) — `stop_all` läuft dort nicht, QEMU bliebe mit gesperrter Platte
+   zurück. Jetzt `AppState::stop_engines_and_wait`: beenden, warten, erneut beenden; `quit_app` nutzt
+   es ebenso. Test `engine_started_while_waiting_is_stopped_too` (vorher rot: Eintrag blieb in der
+   Liste, Prozess lief weiter; jetzt grün).
+
+### Geprüft, keine Regression
+
+- Kein Lock über `await` oder langsamer IO: `busy`/`runtime` werden nur kurz gesperrt; `quit_app`
+  (synchrones Kommando, Haupt-Thread) wartet im eigenen Thread, `install_update` per `spawn_blocking`.
+- Zweimal „Beenden“ während des Wartens: `any_running` zählt Vorgänge mit, also erneute Nachfrage;
+  bestätigt man, rufen zwei Threads `app.exit(0)` — `ExitRequested` mit Code wird nicht abgefangen,
+  ein zweites `exit` nach Ende der Schleife beendet nur denselben Prozess (harmlos, nicht geändert).
+- macOS-Update: `app.restart()` aus einem Nebenthread löst `RunEvent::Exit` aus → `stop_all` griff schon.
+- Busy-Guard beim Anlegen nutzt die neue Id, keine Kollision mit anderen Vorgängen.
+- Windows-Typecheck (`cargo check --target x86_64-pc-windows-msvc --workspace --tests`, gestubbt) grün,
+  ohne Warnungen; `cfg(unix)`-Tests (Rechte, RAM-Disk) sind korrekt eingegrenzt.
+- DE/EN: neue Texte (`confirmQuitBusy`, `confirmUpdateBusy`, `quitWaiting`, SMB-Hinweis, Handbuch
+  Retro emuliert/nested) in beiden Sprachen inhaltsgleich.
+
+### Testlauf
+
+`cargo test --workspace` (core 50, App 16, 1 ignoriert), Windows-Typecheck, `pnpm test:ui` 4/4,
+`pnpm build` grün.

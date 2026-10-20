@@ -694,13 +694,11 @@ pub fn busy_ops(st: State<'_, Shared>) -> bool {
 /// Ein Snapshot einer laufenden Maschine bricht mit dem Ende der Engine sofort ab.
 #[tauri::command]
 pub fn quit_app(app: AppHandle, st: State<'_, Shared>) {
-    for (_, r) in st.runtime.lock().unwrap().drain() {
-        r.kill();
-    }
+    st.kill_all();
     let st = st.inner().clone();
     // Nicht im UI-Thread warten (synchrone Kommandos laufen dort)
     std::thread::spawn(move || {
-        st.wait_idle(QUIT_WAIT);
+        st.stop_engines_and_wait(QUIT_WAIT);
         app.exit(0);
     });
 }
@@ -736,14 +734,11 @@ pub async fn install_update(app: AppHandle, st: State<'_, Shared>) -> Result<(),
         .download(|_, _| {}, || {})
         .await
         .map_err(|e| format!("Update fehlgeschlagen: {e}"))?;
-    let running: Vec<Arc<Running>> = st.runtime.lock().unwrap().drain().map(|(_, r)| r).collect();
-    for r in running {
-        r.kill();
-    }
     // Laufende Vorgänge (qemu-img, Wandlung) erst zu Ende kommen lassen: Der
-    // Windows-Installer beendet virtual sofort und schnitte sie sonst ab.
+    // Windows-Installer beendet virtual sofort und schnitte sie sonst ab. Danach erneut
+    // beenden, was inzwischen hochgefahren ist (sonst verwaist unter Windows).
     let idle = st.inner().clone();
-    let _ = tauri::async_runtime::spawn_blocking(move || idle.wait_idle(QUIT_WAIT)).await;
+    let _ = tauri::async_runtime::spawn_blocking(move || idle.stop_engines_and_wait(QUIT_WAIT)).await;
     update.install(bytes).map_err(|e| format!("Update fehlgeschlagen: {e}"))?;
     app.restart();
 }
